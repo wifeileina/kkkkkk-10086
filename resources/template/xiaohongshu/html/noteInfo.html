@@ -1,0 +1,68 @@
+{{extend defaultLayout}} {{block 'css'}}
+<script src="{{_res_path}}template/extend/js/qrcode.min.js"></script>
+<link rel="stylesheet" type="text/css" href="{{_res_path}}template/xiaohongshu/css/noteInfo.css" />
+{{/block}} {{block 'main'}}
+<div class="xhs-note-page">
+  <div class="ambient" aria-hidden="true">
+    <img src="{{image_url}}" alt="" />
+  </div>
+
+  <section class="cover">
+    <img src="{{image_url}}" alt="" />
+    <div class="brand">小红书</div>
+  </section>
+
+  <main class="content">
+    {{if title}}<h1 class="note-title">{{title}}</h1>{{/if}}
+    {{if hashtags && hashtags.length}}
+    <div class="hashtags">
+      {{each hashtags tag}}<span class="hashtag">#{{tag}}</span>{{/each}}
+    </div>
+    {{/if}}
+    {{if desc}}<p class="desc">{{desc}}</p>{{/if}}
+    <div class="meta">
+      <span>{{time}}</span>
+      {{if ip_location}}<span>{{ip_location}}</span>{{/if}}
+      {{if video && video.width}}<span class="res">{{video.width}}×{{video.height}}</span>{{/if}}
+      <span class="note-id">ID {{note_id}}</span>
+    </div>
+
+    {{if video && video.width}}
+    <div class="vmeta">
+      {{if video.encoding}}<span>{{video.encoding}}</span>{{/if}}
+      {{if video.hdr}}<span class="hdr">HDR</span>{{/if}}
+    </div>
+    {{/if}}
+
+    <section class="stats">
+      <div><strong>{{statistics.liked_count || 0}}</strong><span>点赞</span></div>
+      <div><strong>{{statistics.comment_count || 0}}</strong><span>评论</span></div>
+      <div><strong>{{statistics.collected_count || 0}}</strong><span>收藏</span></div>
+      <div><strong>{{statistics.share_count || 0}}</strong><span>分享</span></div>
+    </section>
+
+    <footer>
+      <section class="author">
+        <img src="{{author.avatar}}" alt="" />
+        <div>
+          <div class="name">{{author.nickname}}</div>
+          {{if author.user_id}}<div class="uid">{{author.user_id}}</div>{{/if}}
+        </div>
+      </section>
+      <section class="qrcode-box">
+        <div id="qrcode"></div>
+        <span>扫码查看原笔记</span>
+      </section>
+    </footer>
+  </main>
+</div>
+<script>
+  qrcode = new QRCode(document.getElementById('qrcode'), {
+    width: 260,
+    height: 260,
+    colorDark: '{{useDarkTheme}}' === 'true' ? '#ececec' : '#202020',
+    colorLight: '{{useDarkTheme}}' === 'true' ? '#111111' : '#f4f4f4',
+  })
+  qrcode.makeCode('{{share_url}}')
+</script>
+{{/block}}

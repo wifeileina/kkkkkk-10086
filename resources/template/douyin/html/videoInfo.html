@@ -1,0 +1,72 @@
+{{extend defaultLayout}} {{block 'css'}}
+<link rel="stylesheet" type="text/css" href="{{_res_path}}template/douyin/css/videoInfo.css" />
+{{/block}} {{block 'main'}}
+<div class="video-info-page">
+  <div class="ambient" aria-hidden="true">
+    <img src="{{image_url}}" alt="" />
+  </div>
+
+  {{if showCover}}
+  <div class="cover-wrap">
+    <img class="cover" src="{{image_url}}" alt="封面" />
+  </div>
+  {{/if}}
+
+  <main class="content">
+    {{if showTitle}}
+    <div class="title-row">
+      <h1>{{desc}}</h1>
+    </div>
+    {{if hashtags && hashtags.length}}
+    <div class="hashtags">
+      {{each hashtags tag}}<span class="hashtag">#{{tag}}</span>{{/each}}
+    </div>
+    {{/if}}
+    <div class="subline">
+      <span>{{create_time}}</span>
+      {{if video && video.duration}}<span>时长 {{video.duration}}</span>{{/if}}
+      {{if video && video.width}}<span>{{video.width}}×{{video.height}}</span>{{/if}}
+      <span class="dy-id">{{aweme_id}}</span>
+    </div>
+    {{/if}}
+
+    {{if showStats}}
+    <section class="stats-grid">
+      <div><strong>{{statistics.digg_count}}</strong><span>点赞</span></div>
+      <div><strong>{{statistics.comment_count}}</strong><span>评论</span></div>
+      <div><strong>{{statistics.collect_count}}</strong><span>收藏</span></div>
+      <div><strong>{{statistics.share_count}}</strong><span>分享</span></div>
+    </section>
+    {{/if}}
+
+    {{if music}}
+    <section class="music-box">
+      <img class="music-cover" src="{{music.cover}}" alt="" />
+      <div class="music-text">
+        <div class="music-title">♪ {{music.title}}</div>
+        <div class="music-author">{{music.author}}</div>
+      </div>
+    </section>
+    {{/if}}
+
+    {{if showAuthor}}
+    <footer class="footer">
+      <div class="owner">
+        <img class="owner-avatar" src="{{author.avatar}}" alt="头像" />
+        <div class="owner-text">
+          <div class="owner-name">{{author.name}}</div>
+          <div class="owner-id">抖音号：{{author.short_id}}</div>
+          {{if user_profile}}
+          <div class="owner-stats">
+            <span class="owner-stat"><i>粉丝</i><b>{{user_profile.follower_count}}</b></span>
+            <span class="owner-stat"><i>获赞</i><b>{{user_profile.total_favorited}}</b></span>
+          </div>
+          {{/if}}
+        </div>
+      </div>
+      <div class="brand">小卡解析 ktxyAria</div>
+    </footer>
+    {{/if}}
+  </main>
+</div>
+{{/block}}

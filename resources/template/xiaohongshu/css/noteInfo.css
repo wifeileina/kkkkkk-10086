@@ -1,0 +1,280 @@
+/* ============================================================
+   小红书笔记信息卡片
+   氛围层对齐参考插件 karin-plugin-kkk-main 的 AmbientCover：
+   模糊封面 + 三段压色罩。氛围层仅覆盖底部到标题上方，
+   顶部保留清晰封面（删除顶部模糊）
+   ============================================================ */
+
+/* 信息图为内容卡，隐藏 default.html 布局壳底部的版权条，
+   避免信息区下方出现深色版权行（黑边） */
+.copyright {
+  display: none !important;
+}
+
+body.light-mode .container {
+  background: #f7f3f1;
+  color: #202020;
+  width: 1440px;
+}
+
+body.dark-mode .container {
+  background: #111;
+  color: #ececec;
+  width: 1440px;
+}
+
+.xhs-note-page {
+  min-height: 100%;
+  padding-bottom: 52px;
+  position: relative;
+  overflow: hidden;
+  /* 覆盖容器 padding（20px/15px/10px）区域，四周均铺满，底部不外露容器底色 */
+  margin: -20px -15px -10px;
+  padding: 20px 15px 52px;
+}
+
+/* ---------- 封面：顶部清晰保留，无模糊 ---------- */
+.cover {
+  margin: -20px -15px 0;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+.cover img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  /* 顶部清晰保留，底部渐隐透出下层氛围色，平滑衔接信息区 */
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 88%, rgba(0, 0, 0, 0.55) 94%, rgba(0, 0, 0, 0.18) 98%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 88%, rgba(0, 0, 0, 0.55) 94%, rgba(0, 0, 0, 0.18) 98%, transparent 100%);
+}
+
+/* ---------- 品牌角标（胶囊 + 暗红） ---------- */
+.brand {
+  background: #c21833;
+  border-radius: 999px;
+  bottom: 34px;
+  color: #fff;
+  font-size: 38px;
+  font-weight: 900;
+  left: 48px;
+  padding: 10px 30px;
+  position: absolute;
+  z-index: 2;
+}
+
+/* ---------- 信息区：我们自己的文字排版，氛围层透出为背景 ---------- */
+.content {
+  isolation: isolate;
+  position: relative;
+  z-index: 3;
+  padding: 46px 58px 0;
+}
+
+body.dark-mode .content {
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- 氛围层（对齐参考插件 AmbientCover）----------
+   模糊封面 + 三段压色罩。仅覆盖底部到标题上方：
+   顶部被清晰封面遮挡，氛围层从标题上方一点开始向下铺满信息区 */
+.ambient {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: -52px; /* 覆盖页面底部 padding，避免露出底色条 */
+  z-index: 0;
+  overflow: hidden;
+}
+
+.ambient img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(120px) saturate(1.8);
+  transform: scale(1.5);
+  opacity: 0.7; /* 参考 AmbientCover 默认，封面色强度总闸 */
+}
+
+/* 三段压色罩（对齐参考 AmbientCover）：edge 浓 / middle 淡，
+   信息区中部封面色更透，直接透出封面氛围色 */
+.ambient::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+body.light-mode .ambient::after {
+  background: linear-gradient(
+    180deg,
+    rgba(247, 243, 241, 0.9) 0%,
+    rgba(247, 243, 241, 0.2) 50%,
+    rgba(247, 243, 241, 0.9) 100%
+  );
+}
+
+body.dark-mode .ambient::after {
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.9) 0%,
+    rgba(0, 0, 0, 0.2) 50%,
+    rgba(0, 0, 0, 0.9) 100%
+  );
+}
+
+h1 {
+  font-size: 64px;
+  line-height: 1.22;
+  margin: 0;
+  word-break: break-word;
+}
+
+.desc {
+  font-size: 34px;
+  line-height: 1.56;
+  margin: 28px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hashtags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 22px;
+}
+
+.hashtag {
+  background: rgba(128, 128, 128, 0.14);
+  border-radius: 999px;
+  color: #4a7dff;
+  font-size: 30px;
+  padding: 6px 24px;
+}
+
+body.dark-mode .hashtag {
+  color: #7aa0ff;
+}
+
+.meta {
+  color: #777;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 26px;
+  gap: 18px;
+  margin-top: 26px;
+}
+
+.note-id {
+  flex-shrink: 0;
+  font-family: Consolas, monospace;
+  margin-left: auto;
+  padding-left: 18px;
+}
+
+.res {
+  font-family: Consolas, monospace;
+  color: #ff2442;
+}
+
+body.dark-mode .res {
+  color: #ff6b81;
+}
+
+.vmeta {
+  color: #999;
+  display: flex;
+  flex-wrap: wrap;
+  font-family: Consolas, monospace;
+  font-size: 24px;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.vmeta .hdr {
+  color: #ff2442;
+  font-weight: 700;
+}
+
+body.dark-mode .vmeta .hdr {
+  color: #ff6b81;
+}
+
+.stats {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 38px;
+}
+
+.stats div {
+  background: rgba(255, 36, 66, 0.1);
+  border-left: 7px solid #b71e35;
+  padding: 24px 20px;
+}
+
+body.dark-mode .stats div {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.stats strong {
+  display: block;
+  font-size: 38px;
+}
+
+.stats span {
+  color: #777;
+  display: block;
+  font-size: 24px;
+  margin-top: 8px;
+}
+
+footer {
+  align-items: flex-end;
+  display: flex;
+  justify-content: space-between;
+  padding: 48px 58px 0;
+  position: relative;
+  z-index: 3;
+}
+
+.author {
+  align-items: center;
+  display: flex;
+  gap: 24px;
+  min-width: 0;
+}
+
+.author img {
+  border-radius: 50%;
+  height: 128px;
+  object-fit: cover;
+  width: 128px;
+}
+
+.name {
+  font-size: 42px;
+  font-weight: 800;
+}
+
+.uid,
+.qrcode-box span {
+  color: #777;
+  font-size: 24px;
+  margin-top: 8px;
+}
+
+.qrcode-box {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#qrcode {
+  border: 6px dashed currentColor;
+  padding: 10px;
+}

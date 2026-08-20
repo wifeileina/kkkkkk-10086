@@ -1,0 +1,307 @@
+/* ============================================================
+   抖音作品信息卡片 - 简洁版式（参考 bilibili videoInfo）
+   氛围层对齐参考插件 karin-plugin-kkk-main 的 AmbientCover：
+   模糊封面 + 三段压色罩。氛围层仅覆盖底部到标题上方，
+   顶部保留清晰封面（删除顶部模糊）
+   ============================================================ */
+
+/* 信息图为内容卡，隐藏 default.html 布局壳底部的版权条，
+   避免信息区下方出现深色版权行（黑边） */
+.copyright {
+  display: none !important;
+}
+
+/* 容器与页面底色：顶部封面区域保持中性渐变底 */
+body.light-mode .video-info-page,
+body.light-mode .container {
+  background: linear-gradient(180deg, #eef0f2 0%, #f7f7f7 100%);
+  color: #232323;
+}
+
+body.dark-mode .video-info-page,
+body.dark-mode .container {
+  background: linear-gradient(180deg, #181818 0%, #202021 100%);
+  color: #ececec;
+}
+
+.video-info-page {
+  min-height: 100%;
+  position: relative;
+  overflow: hidden;
+  /* 覆盖容器 padding（20px/15px/10px）区域，四周均铺满，底部不外露容器底色 */
+  margin: -20px -15px -10px;
+  padding: 20px 15px 10px;
+}
+
+/* ---------- 封面：顶部清晰保留，无模糊 ---------- */
+.cover-wrap {
+  display: block;
+  margin: -20px -15px 0;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+.cover {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  /* 顶部清晰保留，底部渐隐透出下层氛围色，平滑衔接信息区 */
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 88%, rgba(0, 0, 0, 0.55) 94%, rgba(0, 0, 0, 0.18) 98%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 88%, rgba(0, 0, 0, 0.55) 94%, rgba(0, 0, 0, 0.18) 98%, transparent 100%);
+}
+
+/* ---------- 信息区：我们自己的文字排版，氛围层透出为背景 ---------- */
+.content {
+  isolation: isolate;
+  position: relative;
+  z-index: 3;
+  padding: 34px 86px 72px;
+}
+
+body.dark-mode .content {
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- 氛围层（对齐参考插件 AmbientCover）----------
+   模糊封面 + 三段压色罩。仅覆盖底部到标题上方：
+   顶部被清晰封面遮挡，氛围层从标题上方一点开始向下铺满信息区 */
+.ambient {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: -10px; /* 覆盖页面底部 padding，避免露出底色条 */
+  z-index: 0;
+  overflow: hidden;
+}
+
+.ambient img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(120px) saturate(1.8);
+  transform: scale(1.5);
+  opacity: 0.7; /* 参考 AmbientCover 默认，封面色强度总闸 */
+}
+
+/* 三段压色罩（对齐参考 AmbientCover）：edge 浓 / middle 淡，
+   信息区中部封面色更透，直接透出封面氛围色 */
+.ambient::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+body.light-mode .ambient::after {
+  background: linear-gradient(
+    180deg,
+    rgba(247, 247, 247, 0.9) 0%,
+    rgba(247, 247, 247, 0.2) 50%,
+    rgba(247, 247, 247, 0.9) 100%
+  );
+}
+
+body.dark-mode .ambient::after {
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.9) 0%,
+    rgba(0, 0, 0, 0.2) 50%,
+    rgba(0, 0, 0, 0.9) 100%
+  );
+}
+
+/* ---------- 标题区 ---------- */
+.title-row {
+  align-items: flex-end;
+  display: flex;
+  gap: 36px;
+  justify-content: space-between;
+}
+
+.title-row h1 {
+  font-size: 66px;
+  line-height: 1.2;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  width: 100%;
+}
+
+/* ---------- 话题标签：正文下方独立一行、缩小 ---------- */
+.hashtags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 22px;
+}
+
+.hashtag {
+  background: rgba(128, 128, 128, 0.14);
+  border-radius: 999px;
+  color: #4a7dff;
+  font-size: 30px;
+  padding: 6px 24px;
+}
+
+body.dark-mode .hashtag {
+  background: rgba(255, 255, 255, 0.1);
+  color: #7aa0ff;
+}
+
+.dy-id {
+  color: #909090;
+  flex-shrink: 0;
+  font-family: Consolas, monospace;
+  font-size: 30px;
+  margin-left: auto;
+}
+
+.subline {
+  color: #909090;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 32px;
+  gap: 14px 32px;
+  margin-top: 26px;
+}
+
+.subline span + span::before {
+  content: '·';
+  margin-right: 32px;
+  opacity: 0.5;
+}
+
+.subline span.dy-id::before {
+  content: '';
+  margin-right: 0;
+}
+
+/* ---------- 数据格子 ---------- */
+.stats-grid {
+  display: grid;
+  gap: 22px;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 44px;
+}
+
+.stats-grid div {
+  background: rgba(128, 128, 128, 0.12);
+  border-radius: 16px;
+  padding: 30px 20px;
+  text-align: center;
+}
+
+body.dark-mode .stats-grid div {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.stats-grid strong {
+  display: block;
+  font-size: 46px;
+}
+
+.stats-grid span {
+  color: #909090;
+  display: block;
+  font-size: 28px;
+  margin-top: 8px;
+}
+
+/* ---------- 背景音乐 ---------- */
+.music-box {
+  align-items: center;
+  display: flex;
+  gap: 24px;
+  margin-top: 40px;
+}
+
+.music-cover {
+  border-radius: 14px;
+  height: 96px;
+  object-fit: cover;
+  width: 96px;
+}
+
+.music-title {
+  font-size: 34px;
+  font-weight: 700;
+  max-width: 800px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.music-author {
+  color: #909090;
+  font-size: 28px;
+  margin-top: 8px;
+}
+
+/* ---------- 页脚：作者 + 品牌 ---------- */
+.footer {
+  align-items: center;
+  border-top: 1px solid rgba(128, 128, 128, 0.32);
+  display: flex;
+  justify-content: space-between;
+  margin-top: 56px;
+  padding-top: 30px;
+}
+
+.owner {
+  align-items: center;
+  display: flex;
+  gap: 26px;
+}
+
+.owner-avatar {
+  border-radius: 50%;
+  height: 96px;
+  object-fit: cover;
+  width: 96px;
+}
+
+.owner-name {
+  font-size: 42px;
+  font-weight: 700;
+}
+
+.owner-id {
+  color: #909090;
+  font-size: 28px;
+  margin-top: 6px;
+}
+
+.owner-stats {
+  display: flex;
+  gap: 18px;
+  margin-top: 12px;
+}
+
+.owner-stat {
+  align-items: baseline;
+  color: #7c7c7c;
+  display: inline-flex;
+  gap: 8px;
+  font-size: 26px;
+}
+
+.owner-stat b {
+  color: #444;
+  font-size: 30px;
+  font-weight: 700;
+}
+
+body.dark-mode .owner-stat {
+  color: #a9a9a9;
+}
+
+body.dark-mode .owner-stat b {
+  color: #e6e6e6;
+}
+
+.brand {
+  color: #909090;
+  font-size: 28px;
+}

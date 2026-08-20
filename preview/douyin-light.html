@@ -1,0 +1,812 @@
+<!doctype html>
+<html lang="zh-cn"><head><meta charset="utf-8"/>
+<style>
+body { margin:0; }
+.op-layer{display:none;}
+.container{ width:1180px; overflow:hidden; }
+@charset "UTF-8";
+@import '../../../font/bilifont/font.css';
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+}
+
+body {
+  color: #1e1f20;
+  font-family: "CangErFeiBaiW02", "HarmonyOSHans-Regular", "bilifont", "Noto Sans KR", "Noto Color Emoji", "FZB", Number, "PingFang SC", sans-serif;
+  transform-origin: 0 0;
+  width: 1440px;
+}
+
+body.light-mode .container {
+  background-color: #f4f4f4;
+  width: 1440px;
+  padding: 20px 15px 10px 15px;
+  background-size: contain;
+}
+
+body.dark-mode .container {
+  background-color: #202021;
+  width: 1440px;
+  padding: 20px 15px 10px 15px;
+  background-size: contain;
+}
+
+.head-box {
+  border-radius: 15px;
+  padding: 10px 20px;
+  position: relative;
+  color: #fff;
+  margin-top: 30px;
+}
+
+.head-box .label {
+  font-size: 16px;
+  text-shadow: 0 0 1px #000, 1px 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+.head-box .label span {
+  color: #d3bc8e;
+  padding: 0 2px;
+}
+
+.notice {
+  color: #888;
+  font-size: 12px;
+  text-align: right;
+  padding: 12px 5px 5px;
+}
+
+.notice-center {
+  color: #fff;
+  text-align: center;
+  margin-bottom: 10px;
+  text-shadow: 1px 1px 1px #333;
+}
+
+body.light-mode .copyright {
+  font-weight: 700;
+  font-size: 50px;
+  text-align: center;
+  color: #b4b4b4;
+  position: relative;
+  padding-left: 10px;
+  margin: 40px 0;
+}
+
+body.light-mode .copyright .version {
+  padding: 0 10px;
+  margin: 0 0 0 5px;
+  font-size: 25px;
+  color: #666666;
+  text-shadow: 0px 0px 20px #00000000;
+  background-color: #d7d7d7;
+  border-radius: 10px;
+  vertical-align: super;
+}
+
+body.light-mode .copyright .name {
+  color: #666666;
+}
+
+body.dark-mode .copyright {
+  font-weight: 700;
+  font-size: 50px;
+  text-align: center;
+  color: #666666;
+  position: relative;
+  padding-left: 10px;
+  margin: 40px 0;
+}
+
+body.dark-mode .copyright .version {
+  padding: 0 10px;
+  margin: 0 0 0 5px;
+  font-size: 25px;
+  color: #d6d6d6;
+  text-shadow: 0px 0px 20px #00000000;
+  background-color: #666666;
+  border-radius: 10px;
+  vertical-align: super;
+}
+
+body.dark-mode .copyright .name {
+  color: #d6d6d6;
+}
+
+.copyright .commit_id_old {
+  color: #808080;
+  /* 与 .version 保持一致的样式，但颜色不同 */
+  padding: 0 10px; /* 与 version 一致 */
+  margin: 0 0 0 5px; /* 与 version 一致 */
+  font-size: 25px; /* 与 version 一致 */
+  text-shadow: 0px 0px 20px #00000000; /* 与 version 一致 */
+  border-radius: 10px; /* 与 version 一致 */
+  vertical-align: super; /* 与 version 一致 */
+  /* 根据亮色/暗色模式设置背景色 */
+}
+
+/* 为 commit_id_old 和 tip 分别设置亮色和暗色模式下的背景色 */
+body.light-mode .copyright .commit_id_old {
+  background-color: #e9e9e9; /* 比 version 的背景色稍暗或不同，以作区分 */
+  color: #808080;
+}
+
+body.dark-mode .copyright .commit_id_old {
+  background-color: #505050; /* 比 version 的背景色稍亮或不同，以作区分 */
+  color: #a0a0a0;
+}
+
+.copyright .tip {
+  /* 核心：颜色设为红色 */
+  color: #ff0000 !important; /* 使用 !important 确保覆盖其他可能存在的颜色设置 */
+  /* 与 .version 保持一致的样式 */
+  padding: 0 10px;
+  margin: 0 0 0 5px;
+  font-size: 25px; /* 与 version 一致 */
+  text-shadow: 0px 0px 20px #00000000; /* 与 version 一致 */
+  border-radius: 10px; /* 与 version 一致 */
+  vertical-align: super; /* 与 version 一致 */
+  /* 根据亮色/暗色模式设置背景色，可以与 version 的背景色相同，或者略作区分 */
+}
+
+/* 为 .tip 设置亮色和暗色模式下的背景色 */
+body.light-mode .copyright .tip {
+  background-color: #d7d7d7; /* 与 version 在 light-mode 下的背景色一致 */
+}
+
+body.dark-mode .copyright .tip {
+  background-color: #666666; /* 与 version 在 dark-mode 下的背景色一致 */
+}
+
+/* cont */
+.cont {
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.5);
+  margin: 5px 15px 5px 10px;
+  position: relative;
+  box-shadow: 0 0 1px 0 #ccc, 2px 2px 4px 0 rgba(50, 50, 50, 0.8);
+  overflow: hidden;
+  color: #fff;
+  font-size: 10px;
+}
+
+.cont>ul.cont-msg {
+  display: block;
+  padding: 5px 10px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.cont-title {
+  background: rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 1px 0 #fff;
+  color: #d3bc8e;
+  padding: 10px 20px;
+  text-align: left;
+  border-radius: 10px 10px 0 0;
+}
+
+.cont-title span {
+  font-size: 12px;
+  color: #aaa;
+  margin-left: 10px;
+  font-weight: 400;
+}
+
+.cont-title.border-less {
+  background: linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0));
+  box-shadow: none;
+  padding-bottom: 5px;
+}
+
+.cont-body {
+  padding: 10px 15px;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 1px 0 #fff;
+  font-weight: 400;
+}
+
+.cont-footer {
+  padding: 10px 15px;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.5);
+  font-weight: 400;
+}
+
+ul.cont-msg,
+.cont-footer ul {
+  padding-left: 15px;
+}
+
+ul.cont-msg li,
+.cont-footer ul li {
+  margin: 5px 0;
+  margin-left: 15px;
+}
+
+ul.cont-msg li strong,
+.cont-footer ul li strong {
+  font-weight: 400;
+  margin: 0 2px;
+  color: #d3bc8e;
+}
+
+.cont-table {
+  display: table;
+  width: 100%;
+}
+
+.cont-table .tr {
+  display: table-row;
+}
+
+.cont-table .tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.cont-table .tr:nth-child(odd) {
+  background: rgba(50, 50, 50, 0.4);
+}
+
+.cont-table .tr>div.value-full {
+  display: table;
+  width: 200%;
+}
+
+.cont-table .tr>div.value-none {
+  box-shadow: none;
+}
+
+.cont-table .thead {
+  text-align: center;
+}
+
+.cont-table .tr>div,
+.cont-table .tr>td {
+  display: table-cell;
+  box-shadow: 0 0 1px 0 #fff;
+}
+
+.cont-table .thead>div,
+.cont-table .thead>td {
+  color: #d3bc8e;
+  background: rgba(0, 0, 0, 0.4);
+  line-height: 40px;
+  height: 40px;
+}
+
+.cont-table .title,
+.cont-table .th {
+  color: #d3bc8e;
+  padding-right: 15px;
+  text-align: right;
+  background: rgba(0, 0, 0, 0.4);
+  min-width: 100px;
+  vertical-align: middle;
+}
+
+.logo {
+  font-size: 18px;
+  text-align: center;
+  color: #fff;
+  margin: 20px 0 10px 0;
+}
+
+/*  */
+.cons {
+  display: inline-block;
+  vertical-align: middle;
+  padding: 0 5px;
+  border-radius: 4px;
+}
+
+.cons-0 {
+  background: #666;
+  color: #fff;
+}
+
+.cons-n0 {
+  background: #404949;
+  color: #fff;
+}
+
+.cons-1 {
+  background: #5cbac2;
+  color: #fff;
+}
+
+.cons-2 {
+  background: #339d61;
+  color: #fff;
+}
+
+.cons-3 {
+  background: #3e95b9;
+  color: #fff;
+}
+
+.cons-4 {
+  background: #3955b7;
+  color: #fff;
+}
+
+.cons-5 {
+  background: rgba(83, 27, 169, 0.8117647059);
+  color: #fff;
+}
+
+.cons-6 {
+  background: #ff5722;
+  color: #fff;
+}
+
+.cons2-0 {
+  border-radius: 4px;
+  background: #666;
+  color: #fff;
+}
+
+.cons2-1 {
+  border-radius: 4px;
+  background: #71b1b7;
+  color: #fff;
+}
+
+.cons2-2 {
+  border-radius: 4px;
+  background: #369961;
+  color: #fff;
+}
+
+.cons2-3 {
+  border-radius: 4px;
+  background: #4596b9;
+  color: #fff;
+}
+
+.cons2-4 {
+  border-radius: 4px;
+  background: #4560b9;
+  color: #fff;
+}
+
+.cons2-5 {
+  border-radius: 4px;
+  background: rgba(83, 27, 169, 0.8117647059);
+  color: #fff;
+}
+
+.cons2-6 {
+  border-radius: 4px;
+  background: #ff5722;
+  color: #fff;
+}
+
+.logo {
+  font-size: 18px;
+  text-align: center;
+  color: #fff;
+  margin: 20px 0 10px 0;
+}
+
+/* item-icon */
+.item-icon {
+  width: 100%;
+  height: 100%;
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.item-icon .img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.item-icon.artis .img {
+  width: 84%;
+  height: 84%;
+  margin: 8%;
+}
+
+.item-list {
+  display: flex;
+}
+
+.item-list .item-card {
+  width: 70px;
+  background: #e7e5d9;
+}
+
+.item-list .item-icon {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 12px;
+  height: initial;
+}
+
+.item-list .item-title {
+  color: #222;
+  font-size: 13px;
+  text-align: center;
+  padding: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.item-list .item-badge {
+  position: absolute;
+  display: block;
+  left: 0;
+  top: 0;
+  background: rgba(0, 0, 0, 0.6);
+  font-size: 12px;
+  color: #fff;
+  padding: 4px 5px 3px;
+  border-radius: 0 0 6px 0;
+}
+
+/*# sourceMappingURL=common.css.map */
+
+/* ============================================================
+   抖音作品信息卡片 - 简洁版式（参考 bilibili videoInfo）
+   氛围层对齐参考插件 karin-plugin-kkk-main 的 AmbientCover：
+   模糊封面 + 三段压色罩。氛围层仅覆盖底部到标题上方，
+   顶部保留清晰封面（删除顶部模糊）
+   ============================================================ */
+
+/* 信息图为内容卡，隐藏 default.html 布局壳底部的版权条，
+   避免信息区下方出现深色版权行（黑边） */
+.copyright {
+  display: none !important;
+}
+
+/* 容器与页面底色：顶部封面区域保持中性渐变底 */
+body.light-mode .video-info-page,
+body.light-mode .container {
+  background: linear-gradient(180deg, #eef0f2 0%, #f7f7f7 100%);
+  color: #232323;
+}
+
+body.dark-mode .video-info-page,
+body.dark-mode .container {
+  background: linear-gradient(180deg, #181818 0%, #202021 100%);
+  color: #ececec;
+}
+
+.video-info-page {
+  min-height: 100%;
+  position: relative;
+  overflow: hidden;
+  /* 覆盖容器 padding（20px/15px/10px）区域，避免四周露出纯色边框 */
+  margin: -20px -15px 0;
+  padding: 20px 15px 10px;
+}
+
+/* ---------- 封面：顶部清晰保留，无模糊 ---------- */
+.cover-wrap {
+  display: block;
+  margin: -20px -15px 0;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+.cover {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+/* ---------- 信息区：我们自己的文字排版，氛围层透出为背景 ---------- */
+.content {
+  isolation: isolate;
+  position: relative;
+  z-index: 3;
+  padding: 34px 86px 72px;
+}
+
+body.dark-mode .content {
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- 氛围层（对齐参考插件 AmbientCover）----------
+   模糊封面 + 三段压色罩。仅覆盖底部到标题上方：
+   顶部被清晰封面遮挡，氛围层从标题上方一点开始向下铺满信息区 */
+.ambient {
+  position: absolute;
+  top: 14px; /* 标题上方约 20px */
+  left: 0;
+  right: 0;
+  bottom: -10px; /* 覆盖页面底部 padding，避免露出底色条 */
+  z-index: -1;
+  overflow: hidden;
+}
+
+.ambient img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(120px) saturate(1.8);
+  transform: scale(1.5);
+  opacity: 0.7;
+}
+
+/* 三段压色罩：edge(顶/底)浓、middle(中)淡，信息区中部透出封面氛围 */
+.ambient::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+body.light-mode .ambient::after {
+  background: linear-gradient(
+    180deg,
+    rgba(247, 247, 247, 0.9) 0%,
+    rgba(247, 247, 247, 0.2) 50%,
+    rgba(247, 247, 247, 0.9) 100%
+  );
+}
+
+body.dark-mode .ambient::after {
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.9) 0%,
+    rgba(0, 0, 0, 0.2) 50%,
+    rgba(0, 0, 0, 0.9) 100%
+  );
+}
+
+/* ---------- 标题区 ---------- */
+.title-row {
+  align-items: flex-end;
+  display: flex;
+  gap: 36px;
+  justify-content: space-between;
+}
+
+.title-row h1 {
+  font-size: 66px;
+  line-height: 1.2;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  width: 100%;
+}
+
+/* ---------- 话题标签：正文下方独立一行、缩小 ---------- */
+.hashtags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 22px;
+}
+
+.hashtag {
+  background: rgba(128, 128, 128, 0.14);
+  border-radius: 999px;
+  color: #4a7dff;
+  font-size: 30px;
+  padding: 6px 24px;
+}
+
+body.dark-mode .hashtag {
+  background: rgba(255, 255, 255, 0.1);
+  color: #7aa0ff;
+}
+
+.dy-id {
+  color: #909090;
+  flex-shrink: 0;
+  font-family: Consolas, monospace;
+  font-size: 30px;
+  margin-left: auto;
+}
+
+.subline {
+  color: #909090;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 32px;
+  gap: 14px 32px;
+  margin-top: 26px;
+}
+
+.subline span + span::before {
+  content: '·';
+  margin-right: 32px;
+  opacity: 0.5;
+}
+
+.subline span.dy-id::before {
+  content: '';
+  margin-right: 0;
+}
+
+/* ---------- 数据格子 ---------- */
+.stats-grid {
+  display: grid;
+  gap: 22px;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 44px;
+}
+
+.stats-grid div {
+  background: rgba(128, 128, 128, 0.12);
+  border-radius: 16px;
+  padding: 30px 20px;
+  text-align: center;
+}
+
+body.dark-mode .stats-grid div {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.stats-grid strong {
+  display: block;
+  font-size: 46px;
+}
+
+.stats-grid span {
+  color: #909090;
+  display: block;
+  font-size: 28px;
+  margin-top: 8px;
+}
+
+/* ---------- 背景音乐 ---------- */
+.music-box {
+  align-items: center;
+  display: flex;
+  gap: 24px;
+  margin-top: 40px;
+}
+
+.music-cover {
+  border-radius: 14px;
+  height: 96px;
+  object-fit: cover;
+  width: 96px;
+}
+
+.music-title {
+  font-size: 34px;
+  font-weight: 700;
+  max-width: 800px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.music-author {
+  color: #909090;
+  font-size: 28px;
+  margin-top: 8px;
+}
+
+/* ---------- 页脚：作者 + 品牌 ---------- */
+.footer {
+  align-items: center;
+  border-top: 1px solid rgba(128, 128, 128, 0.32);
+  display: flex;
+  justify-content: space-between;
+  margin-top: 56px;
+  padding-top: 30px;
+}
+
+.owner {
+  align-items: center;
+  display: flex;
+  gap: 26px;
+}
+
+.owner-avatar {
+  border-radius: 50%;
+  height: 96px;
+  object-fit: cover;
+  width: 96px;
+}
+
+.owner-name {
+  font-size: 42px;
+  font-weight: 700;
+}
+
+.owner-id {
+  color: #909090;
+  font-size: 28px;
+  margin-top: 6px;
+}
+
+.owner-stats {
+  display: flex;
+  gap: 18px;
+  margin-top: 12px;
+}
+
+.owner-stat {
+  align-items: baseline;
+  color: #7c7c7c;
+  display: inline-flex;
+  gap: 8px;
+  font-size: 26px;
+}
+
+.owner-stat b {
+  color: #444;
+  font-size: 30px;
+  font-weight: 700;
+}
+
+body.dark-mode .owner-stat {
+  color: #a9a9a9;
+}
+
+body.dark-mode .owner-stat b {
+  color: #e6e6e6;
+}
+
+.brand {
+  color: #909090;
+  font-size: 28px;
+}
+
+</style>
+</head>
+<body class="light-mode">
+<div class="container" id="container">
+  <div class="video-info-page">
+    <div class="cover-wrap">
+      <img class="cover" src="file://\\wsl.localhost\Arch\root\TRSS_AllBot\TRSS-Yunzai\plugins\kkkkkk-10086\preview\cover2.jpg" alt="封面" />
+    </div>
+    <main class="content">
+      <div class="ambient" aria-hidden="true"><img src="file://\\wsl.localhost\Arch\root\TRSS_AllBot\TRSS-Yunzai\plugins\kkkkkk-10086\preview\cover2.jpg" alt="" /></div>
+      <div class="title-row"><h1>赛博女剑客 · 冬日限定</h1></div>
+      <div class="hashtags">
+        <span class="hashtag">#赛博朋克</span><span class="hashtag">#游戏</span><span class="hashtag">#冬日限定</span>
+      </div>
+      <div class="subline">
+        <span>2026-08-19</span><span>时长 03:24</span><span class="dy-id">7421658901234567</span>
+      </div>
+      <section class="stats-grid">
+        <div><strong>123,456</strong><span>点赞</span></div>
+        <div><strong>2,345</strong><span>评论</span></div>
+        <div><strong>6,789</strong><span>收藏</span></div>
+        <div><strong>321</strong><span>分享</span></div>
+      </section>
+      <section class="music-box">
+        <img class="music-cover" src="file://\\wsl.localhost\Arch\root\TRSS_AllBot\TRSS-Yunzai\plugins\kkkkkk-10086\preview\cover2.jpg" alt="" />
+        <div class="music-text">
+          <div class="music-title">♪ 霓虹心跳 (Remix)</div>
+          <div class="music-author">电子鱼丸</div>
+        </div>
+      </section>
+      <footer class="footer">
+        <div class="owner">
+          <img class="owner-avatar" src="file://\\wsl.localhost\Arch\root\TRSS_AllBot\TRSS-Yunzai\plugins\kkkkkk-10086\preview\cover2.jpg" alt="头像" />
+          <div class="owner-text">
+            <div class="owner-name">小卡解析</div>
+            <div class="owner-id">抖音号：xiaoka0001</div>
+            <div class="owner-stats">
+              <span class="owner-stat"><i>粉丝</i><b>125.8万</b></span>
+              <span class="owner-stat"><i>获赞</i><b>3019.6万</b></span>
+            </div>
+          </div>
+        </div>
+        <div class="brand">小卡解析 ktxyAria</div>
+      </footer>
+    </main>
+  </div>
+  <div class="copyright">小卡解析 ktxyAria</div>
+</div>
+</body></html>
