@@ -136,12 +136,20 @@ export class Bilibili extends Base {
 
           const playUrlPayload = getBilibiliPayload(playUrlData)
           const playUrlStream = getBilibiliVideoStream(playUrlData)
+          // 优先保内容时，与实际发送一致，取库中以选中的标准1080P档展示（同步编码过滤）
+          const displayPickStream = Config.bilibili.videopriority === true
+            ? pickBilibili1080Plowest(getBilibiliDash(playUrlData)?.video, Config.bilibili.videoCodec)
+            : undefined
 
           // 从已获取的播放流数据中提取分辨率与编码（无需额外请求），用于信息卡展示
+          // videopriority 优先保内容模式下，展示编码跟随实际选中的 displayPickStream，避免与实际发送的编码不一致
           const biliCodecMap = { 'avc1': 'H.264', 'hev1': 'H.265', 'hevc': 'H.265', 'av01': 'AV1' }
-          const biliStreamCodec = (playUrlStream?.codecs || '').toLowerCase().slice(0, 4)
+          const displayCodecs = displayPickStream?.codecs || playUrlStream?.codecs || ''
+          const biliStreamCodec = String(displayCodecs).toLowerCase().slice(0, 4)
           const videoMeta = {
-            resolution: playUrlStream?.width ? `${playUrlStream.width}×${playUrlStream.height}` : '',
+            resolution: displayPickStream?.width
+              ? `${displayPickStream.width}×${displayPickStream.height}`
+              : (playUrlStream?.width ? `${playUrlStream.width}×${playUrlStream.height}` : ''),
             codec: biliCodecMap[biliStreamCodec] || ''
           }
 
@@ -274,7 +282,7 @@ export class Bilibili extends Base {
                 CommentsData: commentsdata,
                 CommentLength: Config.bilibili.realCommentCount ? Common.count(infoData.data.data.stat.reply) : String(commentsdata.length),
                 share_url: 'https://b23.tv/' + infoData.data.data.bvid,
-                Clarity: Config.bilibili.videopriority === true || !this.islogin ? (getBilibiliAcceptDescription(playUrlData)[0] || '未知') : correctList?.selectedQuality,
+                Clarity: Config.bilibili.videopriority === true || !this.islogin ? ((displayPickStream?.id != null && qnd[displayPickStream.id]) || getBilibiliAcceptDescription(playUrlData)[0] || '未知') : correctList?.selectedQuality,
                 VideoSize: Config.bilibili.videopriority === true || !this.islogin ? ((playUrlStream?.size || 0) / (1024 * 1024)).toFixed(2) : videoSize,
                 ImageLength: 0,
                 shareurl: 'https://b23.tv/' + infoData.data.data.bvid
@@ -940,7 +948,12 @@ export class Bilibili extends Base {
       const videoId = isOneVideo ? infoData && infoData.data.bvid : infoData && infoData.result.season_id
       const seasonId = isOneVideo ? infoData && infoData.data.bvid : infoData && infoData.result.season_id
       const dash = getBilibiliDash(playUrlData)
-      const videoUrl = dash?.video?.[0]?.base_url
+      // 优先保内容时，将1080P锁定为标准版(80)，避免取到高码率1080P+(112)/1080P60(116)导致文件偏大；
+      // 同时按 videoCodec 配置优先过滤目标编码（如 h265 会取到 hev1 码流而非默认的 avc1）
+      const selectedVideo = Config.bilibili.videopriority === true
+        ? pickBilibili1080Plowest(dash?.video, Config.bilibili.videoCodec)
+        : dash?.video?.[0]
+      const videoUrl = selectedVideo?.base_url
       const audioUrl = dash?.audio?.[0]?.base_url
       if (!videoUrl || !audioUrl) {
         const videoStream = getBilibiliVideoStream(playUrlData)
@@ -1391,6 +1404,16 @@ export const bilibiliProcessVideos = async (qualityOptions, videoList, audioUrl)
     closestId = largestUnderLimit
   }
 
+  // HDR优先：HDR(125)体积通常比4K(120)更小但观感更优，只要HDR体积在限制内则优先选中
+  const hdrSizeStr = results[125]
+  if (hdrSizeStr !== undefined) {
+    const hdrSize = parseFloat(String(hdrSizeStr).replace('MB', '') || '0')
+    if (hdrSize > 0 && hdrSize <= maxSize) {
+      logger.info(`HDR档(id=125)体积 ${hdrSize}MB <= ${maxSize}MB，优先选中HDR`)
+      closestId = 125
+    }
+  }
+
   logger.info('选中的视频ID:', closestId)
 
   /** @type {string} */
@@ -1467,4 +1490,41 @@ export const getvideosize = async (videourl, audiourl, bvid) => {
 
   const totalSizeInMB = parseFloat(videoSizeInMB) + parseFloat(audioSizeInMB)
   return totalSizeInMB.toFixed(2)
+}
+
+/**
+ * [bilibili] 按各平台通用 videoCodec 规则，在 DASH 码流中优先取用户所选编码下的 1080P 最低档（标准版80）
+ * 编码过滤：avc1/avc/h264 → h264；hev1/hevc/h265 → h265；av01 → av1。
+ * 规则：先按配置编码过滤可用码流（无该编码时保留全部），再取 id<=80 中的最高档；
+ * 若过滤后全部高于80（如仅1080P+/1080P60），则取 id 最小的档，尽量控制体积。
+ * @param {Array<{id?: number, codecs?: string}>} [videoList] - DASH视频码流列表
+ * @param {('h264'|'h265'|'av1'|'auto')} [codec='auto'] - 目标编码，默认 auto 不过滤
+ * @returns {{base_url?: string, id?: number}|undefined} 选中的码流
+ */
+export const pickBilibili1080Plowest = (videoList = [], codec = 'auto') => {
+  if (!Array.isArray(videoList) || videoList.length === 0) return undefined
+
+  // 按配置编码过滤（仅在明确指定编码时生效）
+  const codecFilter = { h264: ['avc1', 'avc'], h265: ['hev1', 'hevc'], av1: ['av01'] }
+  const wanted = codecFilter[codec]
+  let pool = videoList
+  if (wanted?.length) {
+    const matched = videoList.filter(v => {
+      const c = String(v?.codecs || '').toLowerCase()
+      return wanted.some(prefix => c.startsWith(prefix))
+    })
+    if (matched.length > 0) pool = matched
+  }
+
+  const withId = pool.filter(v => typeof v?.id === 'number')
+  if (withId.length === 0) return pool[0]
+
+  // 优先：id<=80 的档位中取最高的
+  const underOrEqual = withId.filter(v => v.id <= 80)
+  if (underOrEqual.length > 0) {
+    return underOrEqual.reduce((max, v) => (v.id > max.id ? v : max))
+  }
+
+  // 全部高于80：取 id 最低的档，尽量控制体积
+  return withId.reduce((min, v) => (v.id < min.id ? v : min))
 }
