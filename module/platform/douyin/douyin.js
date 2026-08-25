@@ -519,7 +519,11 @@ export class DouYin extends Base {
                   duration: formatVideoDuration(video.duration),
                   width: video.width,
                   height: video.height,
-                  ratio: video.ratio
+                  ratio: video.ratio,
+                  isHdr: video.bit_rate?.[sourceIndex]?.hdr_type
+                    || video.bit_rate?.[sourceIndex]?.play_addr?.hdr_type
+                    || video.bit_rate?.some(item => item.hdr_type || item.play_addr?.hdr_type)
+                    || false
                 }
                 : undefined
               const desc = aweme.desc || g_title

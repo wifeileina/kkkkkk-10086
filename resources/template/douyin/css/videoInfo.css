@@ -178,6 +178,29 @@ body.dark-mode .hashtag {
   margin-right: 0;
 }
 
+/* HDR 徽标：彩色胶囊，覆盖默认圆点分隔符 */
+.subline span.hdr-badge::before {
+  content: '';
+  margin-right: 0;
+}
+
+.hdr-badge {
+  align-items: center;
+  background: linear-gradient(135deg, #ff6a3d, #ff2d55);
+  border-radius: 999px;
+  color: #fff !important;
+  display: inline-flex;
+  font-size: 26px !important;
+  font-weight: 800;
+  letter-spacing: 1px;
+  line-height: 1;
+  padding: 8px 22px;
+}
+
+body.dark-mode .hdr-badge {
+  color: #fff !important;
+}
+
 /* ---------- 数据格子 ---------- */
 .stats-grid {
   display: grid;

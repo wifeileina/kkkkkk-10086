@@ -25,6 +25,7 @@
     <div class="subline">
       <span>{{create_time}}</span>
       {{if video && video.duration}}<span>时长 {{video.duration}}</span>{{/if}}
+      {{if video && video.isHdr}}<span class="hdr-badge">HDR</span>{{/if}}
       {{if video && video.width}}<span>{{video.width}}×{{video.height}}</span>{{/if}}
       <span class="dy-id">{{aweme_id}}</span>
     </div>
