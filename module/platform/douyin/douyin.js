@@ -417,6 +417,7 @@ export class DouYin extends Base {
           const sendvideofile = true
           let video = null
           let cover = ''
+          let sourceIndex = 0
           if (isVideo) {
             // 视频地址特殊判断：play_addr_h264、play_addr、
             video = VideoData.data.aweme_detail.video
@@ -432,7 +433,6 @@ export class DouYin extends Base {
             // 视频地址按适配器分支：
             // - QQBot：官方 bot 用裸请求抓取视频 URL，私有 CDN 长链会 403，故用 aweme.snssdk.com 无签名 play 直链（kkk 原方式）
             // - OneBot 等：平台 API 下载带 Referer，能正常拉取 CDN 长链，用 astr 的 getLongLink() 跟随重定向得到可下载直链
-            let sourceIndex = 0
             if (Config.douyin.videoQuality === 'hdr' && video.bit_rate?.length) {
               // 优先选择 HDR 码流（hdr_type 非 0），无 HDR 源时回退首条，避免解析失败
               const hdrIndex = video.bit_rate.findIndex(item => item.hdr_type || item.play_addr?.hdr_type)
@@ -520,10 +520,11 @@ export class DouYin extends Base {
                   width: video.width,
                   height: video.height,
                   ratio: video.ratio,
-                  isHdr: video.bit_rate?.[sourceIndex]?.hdr_type
-                    || video.bit_rate?.[sourceIndex]?.play_addr?.hdr_type
-                    || video.bit_rate?.some(item => item.hdr_type || item.play_addr?.hdr_type)
-                    || false
+                  isHdr: (() => {
+                    const src = video.bit_rate
+                    const hdrOf = (item) => item?.HDR_type || item?.hdr_type || item?.play_addr?.hdr_type
+                    return hdrOf(video.bit_rate?.[sourceIndex]) || src?.some(hdrOf) || false
+                  })()
                 }
                 : undefined
               const desc = aweme.desc || g_title
