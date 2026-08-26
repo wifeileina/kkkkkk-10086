@@ -96,21 +96,24 @@ export class Bilibili extends Base {
           })
           const biliCid = iddata.p ? (infoData.data.data.pages[iddata.p - 1]?.cid || infoData.data.data.cid) : infoData.data.data.cid
           let playUrlData
-          // 仅当未开启"优先保上传"（即需要高画质）时才使用dash并允许4K；
-          // videopriority=true且在配置CK时，携带CK请求1080P级dash（qn=80，不含4K），分辨率从游客720P提升到1080P
-          const useCookie = Config.bilibili.videopriority === true ? '' : Config.cookies.bilibili
+          // 有登录 cookie 即自建请求多编码 dash（含 av01/hevc），编码可用性不受是否大会员影响；
+          // videopriority=true 时 qn=80 锁1080标准版控体积
+          const useCookie = Config.cookies.bilibili || ''
           try {
-            if (Config.bilibili.videopriority === true && Config.cookies.bilibili) {
-              // 优先保内容：携带CK直接请求1080P级dash流（qn=80封顶，避免上到4K），保证分辨率且降低上传体积
+            if (useCookie) {
+              // 携带登录态直接请求：固定 fnval 请求多编码（avc1/hevc/av01），
+              // 编码可用性与是否大会员无关，具体能取到的清晰度仍受账号权限限制；
+              // videopriority=true 时 qn=80 锁定1080标准版控体积，否则 qn=116 尽量给高清
               const baseURL = bilibiliApiUrls.getVideoStream({ avid: infoData.data.data.aid, cid: biliCid })
-              const sign = await wbi_sign(baseURL, Config.cookies.bilibili)
+              const sign = await wbi_sign(baseURL, useCookie)
+              const qn = Config.bilibili.videopriority === true ? 80 : 116
               playUrlData = await new Networks({
-                url: `${baseURL}&qn=80&fnval=16&${sign}`,
+                url: `${baseURL}&qn=${qn}&fnval=4048&fourk=1&${sign}`,
                 headers: this.headers
               }).getData()
             } else {
-              // 登录态高画质请求
-              playUrlData = await this.amagi.getBilibiliData('单个视频下载信息数据', useCookie, {
+              // 无登录 cookie，走游客请求
+              playUrlData = await this.amagi.getBilibiliData('单个视频下载信息数据', '', {
                 avid: infoData.data.data.aid,
                 cid: biliCid,
                 typeMode: 'strict'
@@ -136,14 +139,15 @@ export class Bilibili extends Base {
 
           const playUrlPayload = getBilibiliPayload(playUrlData)
           const playUrlStream = getBilibiliVideoStream(playUrlData)
-          // 优先保内容时，与实际发送一致，取库中以选中的标准1080P档展示（同步编码过滤）
+          // 与实际发送保持一致的编码过滤：优先保内容时锁1080标准版，否则按配置编码取该编码码流
+          const displayList = getBilibiliDash(playUrlData)?.video
           const displayPickStream = Config.bilibili.videopriority === true
-            ? pickBilibili1080Plowest(getBilibiliDash(playUrlData)?.video, Config.bilibili.videoCodec)
-            : undefined
+            ? pickBilibili1080Plowest(displayList, Config.bilibili.videoCodec)
+            : (pickBilibiliCodecBest(displayList, Config.bilibili.videoCodec) || playUrlStream)
 
           // 从已获取的播放流数据中提取分辨率与编码（无需额外请求），用于信息卡展示
           // videopriority 优先保内容模式下，展示编码跟随实际选中的 displayPickStream，避免与实际发送的编码不一致
-          const biliCodecMap = { 'avc1': 'H.264', 'hev1': 'H.265', 'hevc': 'H.265', 'av01': 'AV1' }
+          const biliCodecMap = { 'avc1': 'H.264', 'hev1': 'H.265', 'hevc': 'H.265', 'hvc1': 'H.265', 'hvc': 'H.265', 'av01': 'AV1' }
           const displayCodecs = displayPickStream?.codecs || playUrlStream?.codecs || ''
           const biliStreamCodec = String(displayCodecs).toLowerCase().slice(0, 4)
           const videoMeta = {
@@ -952,7 +956,7 @@ export class Bilibili extends Base {
       // 同时按 videoCodec 配置优先过滤目标编码（如 h265 会取到 hev1 码流而非默认的 avc1）
       const selectedVideo = Config.bilibili.videopriority === true
         ? pickBilibili1080Plowest(dash?.video, Config.bilibili.videoCodec)
-        : dash?.video?.[0]
+        : (pickBilibiliCodecBest(dash?.video, Config.bilibili.videoCodec) || dash?.video?.[0])
       const videoUrl = selectedVideo?.base_url
       const audioUrl = dash?.audio?.[0]?.base_url
       if (!videoUrl || !audioUrl) {
@@ -1501,11 +1505,34 @@ export const getvideosize = async (videourl, audiourl, bvid) => {
  * @param {('h264'|'h265'|'av1'|'auto')} [codec='auto'] - 目标编码，默认 auto 不过滤
  * @returns {{base_url?: string, id?: number}|undefined} 选中的码流
  */
+/**
+ * 按配置编码过滤并返回该编码下的第一个码流，与「优先保内容」开关解耦。
+ * 用于 videopriority 关闭时也让 videoCodec 配置生效；匹配不到目标编码时
+ * 返回 undefined，由调用方回退到默认码流。
+ * @param {Array<{id?: number, codecs?: string}>} [videoList] - DASH视频码流列表
+ * @param {('h264'|'h265'|'av1'|'auto')} [codec] - 目标编码
+ * @returns {{base_url?: string, id?: number}|undefined}
+ */
+export const pickBilibiliCodecBest = (videoList = [], codec) => {
+  if (!Array.isArray(videoList) || videoList.length === 0) return undefined
+  const codecFilter = { h264: ['avc1', 'avc'], h265: ['hev1', 'hevc', 'hvc1', 'hvc'], av1: ['av01'] }
+  const wanted = codecFilter[codec]
+  if (!wanted?.length) return undefined
+  const matched = videoList.filter(v => {
+    const c = String(v?.codecs || '').toLowerCase()
+    return wanted.some(prefix => c.startsWith(prefix))
+  })
+  if (matched.length === 0) return undefined
+  const withId = matched.filter(v => typeof v?.id === 'number')
+  if (withId.length === 0) return matched[0]
+  return withId.reduce((max, v) => (v.id > max.id ? v : max))
+}
+
 export const pickBilibili1080Plowest = (videoList = [], codec = 'auto') => {
   if (!Array.isArray(videoList) || videoList.length === 0) return undefined
 
   // 按配置编码过滤（仅在明确指定编码时生效）
-  const codecFilter = { h264: ['avc1', 'avc'], h265: ['hev1', 'hevc'], av1: ['av01'] }
+  const codecFilter = { h264: ['avc1', 'avc'], h265: ['hev1', 'hevc', 'hvc1', 'hvc'], av1: ['av01'] }
   const wanted = codecFilter[codec]
   let pool = videoList
   if (wanted?.length) {
