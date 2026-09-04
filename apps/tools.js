@@ -15,6 +15,11 @@ const douyinSelections = new Map()
 const getConfigValue = (value, fallback) => value ?? fallback
 const isVideoToolEnabled = () => getConfigValue(Config.app?.videoTool, Config.app?.videotool) !== false
 const isDefaultTool = () => getConfigValue(Config.app?.defaulttool, Config.app?.videoTool) !== false
+// 私聊解析开关；onebot/qqbot 私聊事件字段存在差异，故兼容多种私聊标记
+const isPrivateParseEnabled = () => getConfigValue(Config.app?.privateTool, true) !== false
+const isPrivateEvent = e => Boolean(
+  e?.isPrivate || e?.is_private || e?.message_type === 'private' || e?.isGroup === false
+)
 
 const PLATFORM_CONFIG = [
   {
@@ -148,6 +153,13 @@ export class kkkTools extends plugin {
     return true
   }
 
+  /** 私聊解析开关关闭时拦截私聊解析入口；群聊返回 false */
+  _isPrivateParseBlocked(e, name) {
+    if (isPrivateParseEnabled() || !isPrivateEvent(e)) return false
+    logger.info(`[私聊解析] 私聊解析已关闭，跳过${name}解析`)
+    return true
+  }
+
   async runWithErrorHandler(e, businessName, fn) {
     const handler = wrapWithErrorHandler(async event => fn.call(this, event), { businessName, plugin: this })
     return await handler(e)
@@ -159,6 +171,7 @@ export class kkkTools extends plugin {
    * @returns {Promise<boolean>} 处理结果
    */
   async douyin(e) {
+    if (this._isPrivateParseBlocked(e, '抖音')) return true
     return await this.runWithErrorHandler(e, '抖音视频解析', this._douyin)
   }
 
@@ -187,6 +200,7 @@ export class kkkTools extends plugin {
   }
 
   async selectDouyinWork(e) {
+    if (this._isPrivateParseBlocked(e, '抖音主页作品选择')) return true
     const key = getSelectionKey(e)
     const selection = douyinSelections.get(key)
     if (!selection) return false
@@ -223,6 +237,7 @@ export class kkkTools extends plugin {
    * @returns {Promise<boolean>} 处理结果
    */
   async bilibili(e) {
+    if (this._isPrivateParseBlocked(e, 'B站')) return true
     return await this.runWithErrorHandler(e, 'B站视频解析', this._bilibili)
   }
 
@@ -262,6 +277,7 @@ export class kkkTools extends plugin {
    * @returns {Promise<boolean>} 处理结果
    */
   async kuaishou(e) {
+    if (this._isPrivateParseBlocked(e, '快手')) return true
     return await this.runWithErrorHandler(e, '快手视频解析', this._kuaishou)
   }
 
@@ -282,6 +298,7 @@ export class kkkTools extends plugin {
    * @returns {Promise<boolean>} 处理结果
    */
   async xiaohongshu(e) {
+    if (this._isPrivateParseBlocked(e, '小红书')) return true
     return await this.runWithErrorHandler(e, '小红书笔记解析', this._xiaohongshu)
   }
 

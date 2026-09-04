@@ -191,12 +191,11 @@ export class Base {
             if (prop === 'getDouyinData' && (result.code !== 200)) {
               /** @type {import('@ikenxuan/amagi').ApiResponse<import('@ikenxuan/amagi').APIErrorType<'douyin'>>} */
               const err = result
-              const img = await buildApiErrorImage('douyin', String(prop), err)
+              // 聚合接口失败通常可由分享页降级成功，群聊不提前发错误图，避免"先报错图、后解析成功"，交由降级链路处理
               if (Object.keys(e).length === 0) {
+                const img = await buildApiErrorImage('douyin', String(prop), err)
                 await sendMasterMessage('douyin', img)
-                throw new Error(err.message)
               }
-              await e.reply(img)
               throw new Error(err.message)
             }
 
@@ -534,10 +533,20 @@ export const uploadFile = async (e, file, videoUrl, options) => {
       })
     } else {
       return await withVideoUploadLock(file.filepath, async () => {
-        const status = isActiveMessage
-          ? await target?.sendMsg(segment.video(File) || videoUrl)
-          : await e.reply(segment.video(File) || videoUrl)
-        return !!status?.message_id
+        // Windows 端 NapCat 为同一视频生成同一缩略图，并发上传会撞文件锁(EBUSY)，串行锁之外再加短重试兜底
+        for (let attempt = 0; ; attempt++) {
+          try {
+            const status = isActiveMessage
+              ? await target?.sendMsg(segment.video(File) || videoUrl)
+              : await e.reply(segment.video(File) || videoUrl)
+            return !!status?.message_id
+          } catch (error) {
+            const busy = /EBUSY|resource busy or locked/i.test(String(error?.message || error))
+            if (!busy || attempt >= 2) throw error
+            logger.warn(`视频发送遇文件占用(EBUSY)，${attempt + 1}秒后重试`)
+            await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+          }
+        }
       })
     }
   } catch (error) {
@@ -588,12 +597,25 @@ export const downloadVideo = async (e, downloadOpt, uploadOpt) => {
 
   // 下载选项与缓存 key 提前构建，URL 直发成功后也用于后台写缓存
   const cacheKey = downloadOpt.cacheKey
-  const buildDownloadOpt = () => ({
-    title: Config.app.removeCache ? (downloadOpt.title.timestampTitle || 'temp') : processFilename(downloadOpt.title.originTitle || 'video', 50),
-    headers: downloadOpt.headers || /** @type {any} */ (baseHeaders),
-    isLiveStream: downloadOpt.isLiveStream,
-    liveStreamMaxSize: downloadOpt.liveStreamMaxSize
-  })
+  const buildDownloadOpt = () => {
+    // 抖音视频下载源：无签名 play 直链(aweme.snssdk.com) 或 CDN 签名长链(douyinvod/ixigua/vod.bytedance)，桌面UA + 空Cookie 会被 403，改用移动端UA + douyin 来源页 Referer + 抖音Cookie
+    const isDouyinPlay = /(?:aweme\.snssdk\.com\/aweme\/v1\/(?:play|playwm)\/|(?:^|\.)douyinvod\d*\.com\/|(?:^|\.)ixigua\.com\/|(?:^|\.)vod\.bytedance\.com\/)/i.test(downloadOpt.video_url || '')
+    const headers = isDouyinPlay
+      ? {
+          Accept: '*/*',
+          'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+          Referer: 'https://www.douyin.com/',
+          Cookie: Config.cookies.douyin || ''
+        }
+      : (downloadOpt.headers || /** @type {any} */ (baseHeaders))
+    return {
+      title: Config.app.removeCache ? (downloadOpt.title.timestampTitle || 'temp') : processFilename(downloadOpt.title.originTitle || 'video', 50),
+      headers,
+      isLiveStream: downloadOpt.isLiveStream,
+      liveStreamMaxSize: downloadOpt.liveStreamMaxSize
+    }
+  }
 
   // QQBot 需自抓视频URL上传，先裸探测能否公开抓取；抓不了（如抖音防盗链403）则退回本地下载
   const urlFetchable = botAdapter !== 'QQBot' || await isUrlBareFetchable(downloadOpt.video_url)

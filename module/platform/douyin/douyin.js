@@ -76,6 +76,18 @@ const getDouyinLiveVideoUrl = (imageItem) => {
   return uri ? `https://aweme.snssdk.com/aweme/v1/play/?video_id=${uri}&ratio=1080p&line=0` : ''
 }
 
+/** 画质档位 → 目标视频高度（用于从 bit_rate 挑选最接近的码流） */
+const getDouyinQualityHeight = (quality) => {
+  const map = { '540p': 540, '720p': 720, '1080p': 1080, '2k': 1440, '4k': 2160 }
+  return map[quality]
+}
+
+/** 画质档位 → aweme play 接口的 ratio 参数（分享页降级/无码流多档时用） */
+const getDouyinQualityRatio = (quality) => {
+  const map = { '540p': '540p', '720p': '720p', '1080p': '1080p', '2k': '1440p', '4k': '2160p' }
+  return map[quality] || '1080p'
+}
+
 export class DouYin extends Base {
   /** @type {import('./getid.js').DouyinDataTypes[keyof import('./getid.js').DouyinDataTypes]} */
   type
@@ -421,7 +433,7 @@ export class DouYin extends Base {
           if (isVideo) {
             // 视频地址特殊判断：play_addr_h264、play_addr、
             video = VideoData.data.aweme_detail.video
-            FPS = video.bit_rate[0]?.FPS || '获取失败' // FPS
+            FPS = video.bit_rate[sourceIndex]?.FPS || '获取失败' // FPS
             if (Config.douyin.autoResolution) {
               logger.debug(`开始排除不符合条件的视频分辨率；\n
               共拥有${logger.yellow(video.bit_rate.length)}个视频源\n
@@ -437,11 +449,25 @@ export class DouYin extends Base {
               // 优先选择 HDR 码流（hdr_type 非 0），无 HDR 源时回退首条，避免解析失败
               const hdrIndex = video.bit_rate.findIndex(item => item.hdr_type || item.play_addr?.hdr_type)
               if (hdrIndex >= 0) sourceIndex = hdrIndex
+            } else if (Config.douyin.videoQuality && Config.douyin.videoQuality !== 'adapt') {
+              // 按画质配置从 bit_rate 选取高度最接近目标档的码流；匹配不到则保持默认首条，避免越级
+              const target = getDouyinQualityHeight(Config.douyin.videoQuality)
+              if (target && video.bit_rate?.length) {
+                let best = { d: Infinity, i: sourceIndex }
+                for (let i = 0; i < video.bit_rate.length; i++) {
+                  const h = video.bit_rate[i]?.play_addr?.height || 0
+                  if (h <= 0) continue
+                  const d = Math.abs(h - target)
+                  if (d < best.d) best = { d, i }
+                }
+                sourceIndex = best.i
+              }
             }
+            const playRatio = getDouyinQualityRatio(Config.douyin.videoQuality)
             const rb = (video.bit_rate && video.bit_rate.length ? video.bit_rate[sourceIndex].play_addr : null) || video.play_addr_h264 || video.play_addr
             if (this.botadapter === 'QQBot') {
               const playUri = rb?.uri || video.play_addr?.uri || ''
-              g_video_url = `https://aweme.snssdk.com/aweme/v1/play/?video_id=${playUri}&ratio=1080p&line=0`
+              g_video_url = `https://aweme.snssdk.com/aweme/v1/play/?video_id=${playUri}&ratio=${playRatio}&line=0`
             } else {
               g_video_url = await new Networks({
                 url: rb?.url_list?.[1] || rb?.url_list?.[0],
@@ -456,7 +482,7 @@ export class DouYin extends Base {
 
             const title = VideoData.data.aweme_detail.preview_title.substring(0, 80).replace(/[\\/:\*\?"<>\|\r\n]/g, ' ') // video title
             g_title = title
-            mp4size = (video.bit_rate[0].play_addr.data_size / (1024 * 1024)).toFixed(2)
+            mp4size = ((video.bit_rate[sourceIndex]?.play_addr?.data_size || 0) / (1024 * 1024)).toFixed(2)
             logger.info('视频地址', `https://aweme.snssdk.com/aweme/v1/play/?video_id=${VideoData.data.aweme_detail.video.play_addr.uri}&ratio=1080p&line=0`)
           }
 
@@ -514,11 +540,13 @@ export class DouYin extends Base {
                   cover: getFirstUrl(aweme.music.cover_hd) || getFirstUrl(aweme.music.cover_large) || getFirstUrl(aweme.music.cover_thumb)
                 }
                 : undefined
+              const selectedVideo = video.bit_rate?.[sourceIndex]
               const videoInfo = video
                 ? {
                   duration: formatVideoDuration(video.duration),
-                  width: video.width,
-                  height: video.height,
+                  // 展示实际选中码流的宽高，与下载一致的清晰度，避免仍显示最高档
+                  width: selectedVideo?.play_addr?.width || video.width,
+                  height: selectedVideo?.play_addr?.height || video.height,
                   ratio: video.ratio,
                   isHdr: (() => {
                     const src = video.bit_rate

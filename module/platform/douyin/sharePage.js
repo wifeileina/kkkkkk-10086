@@ -1,5 +1,19 @@
 import { Networks } from '../../utils/Networks.js'
 
+import { Config } from '../../utils/index.js'
+
+/** 画质档位 → aweme play 接口的 ratio 参数（分享页降级链路无真实多档码流，用 ratio 让服务端返回对应清晰度） */
+const getDouyinQualityRatio = (quality) => {
+  const map = { '540p': '540p', '720p': '720p', '1080p': '1080p', '2k': '1440p', '4k': '2160p' }
+  return map[quality] || '1080p'
+}
+
+/** 画质档位 → 目标视频高度（用于信息图展示换算） */
+const getDouyinQualityHeight = (quality) => {
+  const map = { '540p': 540, '720p': 720, '1080p': 1080, '2k': 1440, '4k': 2160 }
+  return map[quality]
+}
+
 /**
  * 抖音分享页 HTML 解析（Web API 403 时的降级链路）
  * 与 astrbot_plugin_parser_lite 同构：请求 www.iesdouyin.com/share/video/{id}/
@@ -140,12 +154,21 @@ const normalizeAwemeDetail = (raw) => {
   const durationMs = video?.duration || 0
   const statistics = raw?.statistics || {}
 
-  // 无签名 play 端点：视频直链，配合 Range 探测/直下
+  // 无签名 play 端点：视频直链，配合 Range 探测/直下；ratio 跟随画质配置
+  const ratio = getDouyinQualityRatio(Config.douyin?.videoQuality)
   const playEndpoint = playUri
-    ? `https://aweme.snssdk.com/aweme/v1/play/?video_id=${playUri}&ratio=1080p&line=0`
+    ? `https://aweme.snssdk.com/aweme/v1/play/?video_id=${playUri}&ratio=${ratio}&line=0`
     : playUrl
   // 兼容上游 url_list[2] 取值习惯，重复填充同一有效地址
   const playUrlList = [playEndpoint, playEndpoint, playEndpoint]
+
+  // 按画质配置等比换算展示宽高，仅当原画高于目标档时才下调，源无尺寸则缺省
+  const srcW = video?.width || 0
+  const srcH = video?.height || 0
+  const targetH = getDouyinQualityHeight(Config.douyin?.videoQuality)
+  const renderWh = srcH > 0 && targetH && targetH < srcH
+    ? { w: Math.round((srcW || srcH) * targetH / srcH), h: targetH }
+    : { w: srcW, h: srcH }
 
   const author = raw?.author || {}
 
@@ -187,7 +210,10 @@ const normalizeAwemeDetail = (raw) => {
           play_addr: {
             uri: playUri,
             url_list: playUrlList,
-            data_size: 0
+            data_size: 0,
+            // 补展示宽高，使信息图与实际选中的清晰度一致；无目标档/源无尺寸时以 renderWh 兜底
+            width: renderWh.w,
+            height: renderWh.h
           }
         }],
         animated_cover: video?.cover || { url_list: [] },

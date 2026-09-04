@@ -259,6 +259,7 @@ const schemas = [
   divider('全局开关'),
   sw('app.videotool', '总开关', '视频解析工具总开关，修改后重启生效'),
   sw('app.videoTool', '总开关（新版键）', '兼容 Karin 新配置名，建议与总开关保持一致'),
+  sw('app.privateTool', '私聊解析', '关闭后私聊中的链接不做解析，群聊不受影响'),
   sw('app.defaulttool', '默认解析', '识别最高优先级，修改后重启生效'),
   num('app.priority', '解析优先级', 0, 114514, '', '默认解析关闭后生效，修改后重启生效'),
   sw('app.parseTip', '解析提示', '发送“检测到链接，开始解析”提示'),

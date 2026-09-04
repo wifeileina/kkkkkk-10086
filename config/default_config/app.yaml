@@ -4,6 +4,9 @@ videotool: true
 # 默认解析，即识别最高优先级（新项目配置名，兼容 videotool/defaulttool）
 videoTool: true
 
+# 私聊解析开关，关闭后私聊中的平台链接不做解析，群聊不受影响
+privateTool: true
+
 # 默认解析，即识别最高优先级，修改后重启生效
 defaulttool: true
 

@@ -1,5 +1,5 @@
 import { Base, Render, Config, Networks, mergeFile, Common, baseHeaders, downloadFile, uploadFile, downloadVideo, processImageUrl, makeForwardMsgBatched } from '../../utils/index.js'
-import { getCachedData, setCachedData, runSingleFlightData } from '../../utils/ResourceCache.js'
+import { getCachedData, setCachedData, runSingleFlightData, runSingleFlight } from '../../utils/ResourceCache.js'
 import { bilibiliApiUrls, DynamicType, AdditionalType, wbi_sign } from '@ikenxuan/amagi'
 import { getBilibiliData } from './api.js'
 import { burnDanmaku } from '../common/danmaku.js'
@@ -969,66 +969,68 @@ export class Bilibili extends Base {
         return
       }
 
-      // 并行下载视频和音频
-      const [bmp4, bmp3] = await Promise.all([
-        downloadFile(videoUrl, {
-          title: `Bil_V_${videoId}.mp4`,
-          headers: {
-            Referer: this.headers.Referer,
-            Cookie: this.headers.Cookie || ''
-          }
-        }),
-        downloadFile(audioUrl, {
-          title: `Bil_A_${videoId}.mp3`,
-          headers: {
-            Referer: this.headers.Referer,
-            Cookie: this.headers.Cookie || ''
-          }
-        })
-      ])
+      // 同一内容的视频并发转发到多群时，共享同一次下载+合成（单飞），避免重复下载、重复合成及共享路径并发写。
+      // 单飞仅产出最终文件路径并返回给所有群；各群随后对同一文件上传，withVideoUploadLock 按相同文件路径串行，避免缩略图 EBUSY。
+      const cacheKeyBatch = `bilibili:merge:${videoUrl}|${audioUrl}`
+      const mergedFile = await runSingleFlight(cacheKeyBatch, async () => {
+        const [bmp4, bmp3] = await Promise.all([
+          downloadFile(videoUrl, {
+            title: `Bil_V_${videoId}.mp4`,
+            headers: {
+              Referer: this.headers.Referer,
+              Cookie: this.headers.Cookie || ''
+            }
+          }),
+          downloadFile(audioUrl, {
+            title: `Bil_A_${videoId}.mp3`,
+            headers: {
+              Referer: this.headers.Referer,
+              Cookie: this.headers.Cookie || ''
+            }
+          })
+        ])
 
-      if (bmp4.filepath && bmp3.filepath) {
-        await mergeFile('二合一（视频 + 音频）', {
+        if (!bmp4.filepath || !bmp3.filepath) return null
+
+        const resultPath = Common.tempDri.video + `Bil_Result_${seasonId}.mp4`
+        const merged = await mergeFile('二合一（视频 + 音频）', {
           path: bmp4.filepath,
           path2: bmp3.filepath,
-          resultPath: Common.tempDri.video + `Bil_Result_${seasonId}.mp4`,
-          callback: async (/** @type {boolean} */ success, /** @type {string} */ resultPath) => {
-            if (!success) {
-              await Common.removeFile(bmp4.filepath, true)
-              await Common.removeFile(bmp3.filepath, true)
-              return true
-            }
-
-            let sourcePath = resultPath
-            if ((this.forceBurnDanmaku || Config.bilibili.burnDanmaku) && danmakuList.length > 0) {
-              const burnPath = Common.tempDri.video + `Bil_Danmaku_${Date.now()}.mp4`
-              const ok = await burnDanmaku('bilibili', resultPath, danmakuList, burnPath, {
-                danmakuArea: Config.bilibili.danmakuArea,
-                danmakuFontSize: Config.bilibili.danmakuFontSize,
-                danmakuOpacity: Config.bilibili.danmakuOpacity
-              })
-              if (ok) {
-                await Common.removeFile(resultPath, true)
-                sourcePath = burnPath
-              }
-            }
-
-            const filePath = Common.tempDri.video + `${Config.app.removeCache ? 'tmp_' + Date.now() : this.downloadfilename}.mp4`
-            fs.renameSync(sourcePath, filePath)
-            logger.mark(`视频文件重命名完成: ${resultPath.split('/').pop()} -> ${filePath.split('/').pop()}`)
-            logger.mark('正在尝试删除缓存文件')
-            await Common.removeFile(bmp4.filepath, true)
-            await Common.removeFile(bmp3.filepath, true)
-
-            const stats = fs.statSync(filePath)
-            const fileSizeInMB = Number((stats.size / (1024 * 1024)).toFixed(2))
-
-            // 根据文件大小选择上传方式
-            return fileSizeInMB > (Config.upload?.filelimit || 100)
-              ? await uploadFile(this.e, { filepath: filePath, totalBytes: fileSizeInMB, originTitle: this.downloadfilename }, '', { useGroupFile: true })
-              : await uploadFile(this.e, { filepath: filePath, totalBytes: fileSizeInMB, originTitle: this.downloadfilename }, '')
-          }
+          resultPath
         })
+        await Common.removeFile(bmp4.filepath, true)
+        await Common.removeFile(bmp3.filepath, true)
+
+        if (!merged?.status) return null
+
+        let sourcePath = resultPath
+        if ((this.forceBurnDanmaku || Config.bilibili.burnDanmaku) && danmakuList.length > 0) {
+          const burnPath = Common.tempDri.video + `Bil_Danmaku_${seasonId}_${Date.now()}.mp4`
+          const ok = await burnDanmaku('bilibili', resultPath, danmakuList, burnPath, {
+            danmakuArea: Config.bilibili.danmakuArea,
+            danmakuFontSize: Config.bilibili.danmakuFontSize,
+            danmakuOpacity: Config.bilibili.danmakuOpacity
+          })
+          if (ok) {
+            await Common.removeFile(resultPath, true)
+            sourcePath = burnPath
+          }
+        }
+
+        const stats = fs.statSync(sourcePath)
+        return {
+          filepath: sourcePath,
+          totalBytes: Number((stats.size / (1024 * 1024)).toFixed(2))
+        }
+      })
+
+      if (mergedFile) {
+        // 根据文件大小选择上传方式；各群基于同一文件路径上传，发送锁会按该路径串行，避免依次生成的缩略图冲突
+        if (mergedFile.totalBytes > (Config.upload?.filelimit || 100)) {
+          await uploadFile(this.e, { filepath: mergedFile.filepath, totalBytes: mergedFile.totalBytes, originTitle: this.downloadfilename }, '', { useGroupFile: true })
+        } else {
+          await uploadFile(this.e, { filepath: mergedFile.filepath, totalBytes: mergedFile.totalBytes, originTitle: this.downloadfilename }, '')
+        }
       }
     } else {
       /** 没登录（没配置ck）情况下直接发直链，传直链在DownLoadVideo()处理 */
