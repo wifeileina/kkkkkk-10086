@@ -13,6 +13,9 @@ defaulttool: true
 # 缓存删除，非必要不修改！
 removeCache: true
 
+# 缓存保存时间（分钟），开启“删除视频缓存”后生效，到期自动清理视频/图片缓存
+cacheRetentionMinutes: 10
+
 # 自定义优先级，「默认解析」关闭后才会生效。修改后重启生效
 priority: 800
 

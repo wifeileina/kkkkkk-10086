@@ -152,7 +152,7 @@ const emojiTypeOf = (emojiId) => {
 }
 
 /**
- * 对齐 astrbot_parser_lite/core/arbiter.py：用 fetch_emoji_like 拉取指定表情的点赞用户。
+ * 对齐常见解析器的 emoji 点赞逻辑：用 fetch_emoji_like 拉取指定表情的点赞用户。
  * 返回非空数组表示该表情已被（其他机器人）贴过。
  */
 export const fetchEmojiLikers = async (event, emojiId) => {

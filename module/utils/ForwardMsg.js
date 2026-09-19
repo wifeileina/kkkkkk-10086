@@ -12,9 +12,17 @@ export const MAX_FORWARD_MESSAGES = MAX_FORWARD_NODES - 1
 export const MAX_FORWARD_BYTES = 40 * 1024 * 1024
 
 const estimateWeight = (msg) => {
+  const files = new Set()
+  const walk = (o) => {
+    if (!o || typeof o !== 'object') return
+    if (typeof o.file === 'string' && o.file) files.add(o.file)
+    for (const k of Object.keys(o)) {
+      if (k !== 'file') walk(o[k])
+    }
+  }
+  walk(msg)
   let weight = Buffer.byteLength(JSON.stringify(msg ?? ''))
-  const file = msg?.data?.file
-  if (typeof file === 'string' && file) {
+  for (const file of files) {
     let local = file
     if (local.startsWith('file://')) local = local.slice('file://'.length)
     if (local.startsWith('base64://')) {
@@ -59,17 +67,23 @@ const makeBatches = (list, limit, byteLimit) => {
  * @param {string} dec 转发描述（标题）
  * @param {number} [limit] 每批最大消息条数，默认 99（标题节点外留 1 位）
  * @param {number} [byteLimit] 每批最大估算字节，默认 40MB
+ * @param {{titleOnce?: boolean}} [options] 标题是否只放在第一批，默认 false
  * @returns {Promise<Array>} 合并转发元素数组，每个元素可直接 e.reply / sendMsg
  */
-export const makeForwardMsgBatched = async (e, msgs, dec, limit = MAX_FORWARD_MESSAGES, byteLimit = MAX_FORWARD_BYTES) => {
+export const makeForwardMsg = (e, msgs, dec) => common.makeForwardMsg(e, msgs, dec)
+
+export const makeForwardMsgBatched = async (e, msgs, dec, limit = MAX_FORWARD_MESSAGES, byteLimit = MAX_FORWARD_BYTES, options = {}) => {
   const list = Array.isArray(msgs) ? msgs : [msgs]
   const batches = makeBatches(list, limit, byteLimit)
   const total = batches.length
   const result = []
   for (let i = 0; i < total; i++) {
     const chunk = batches[i]
-    const title = total > 1 ? `${dec} (${i + 1}/${total})` : dec
-    result.push(await common.makeForwardMsg(e, chunk, title))
+    const batchName = options.titleOnce ? '合辑内容' : dec
+    const batchLabel = total > 1 ? `${batchName} (${i + 1}/${total})` : null
+    const title = options.titleOnce ? (i === 0 ? dec : undefined) : (batchLabel ? batchLabel : dec)
+    const messages = options.titleOnce && batchLabel ? [batchLabel, ...chunk] : chunk
+    result.push(await common.makeForwardMsg(e, messages, title))
   }
   return result
 }

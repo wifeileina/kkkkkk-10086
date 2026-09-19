@@ -54,10 +54,13 @@ body.dark-mode .container {
 
 /* ---------- 信息区：我们自己的文字排版，氛围层透出为背景 ---------- */
 .content {
-  isolation: isolate;
   position: relative;
   z-index: 3;
   padding: 34px 86px 72px;
+  /* 提升字体渲染清晰度 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body.dark-mode .content {
@@ -138,20 +141,21 @@ body.dark-mode .ambient::after {
 }
 
 .hashtag {
-  background: rgba(128, 128, 128, 0.14);
+  background: rgba(90, 90, 90, 0.16);
+  border: 1px solid rgba(128, 128, 128, 0.28);
   border-radius: 999px;
-  color: #4a7dff;
+  color: #2853c1;
   font-size: 30px;
-  padding: 6px 24px;
+  padding: 5px 24px;
 }
 
 body.dark-mode .hashtag {
-  background: rgba(255, 255, 255, 0.1);
-  color: #7aa0ff;
+  background: rgba(255, 255, 255, 0.16);
+  color: #a9c6ff;
 }
 
 .dy-id {
-  color: #909090;
+  color: rgba(0, 0, 0, 0.62);
   flex-shrink: 0;
   font-family: Consolas, monospace;
   font-size: 30px;
@@ -159,7 +163,7 @@ body.dark-mode .hashtag {
 }
 
 .subline {
-  color: #909090;
+  color: rgba(0, 0, 0, 0.62);
   display: flex;
   flex-wrap: wrap;
   font-size: 32px;
@@ -208,15 +212,61 @@ body.dark-mode .stats-grid div {
 }
 
 .stats-grid strong {
+  color: #ffffff;
   display: block;
   font-size: 46px;
+  font-weight: 700;
+  mix-blend-mode: difference;
 }
 
 .stats-grid span {
-  color: #909090;
+  color: #ffffff;
   display: block;
   font-size: 28px;
   margin-top: 8px;
+  mix-blend-mode: difference;
+}
+
+/* ---------- 配额提示 ---------- */
+.quota-hint {
+  margin-top: 26px;
+  padding: 16px 24px;
+  border-radius: 14px;
+  background: rgba(128, 128, 128, 0.12);
+  color: #ffffff;
+  font-size: 26px;
+  font-weight: 600;
+  text-align: center;
+  mix-blend-mode: difference;
+}
+
+body.dark-mode .quota-hint {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* ---------- 超额强制解析提示 ---------- */
+.force-hint {
+  margin-top: 16px;
+  background: rgba(255, 140, 0, 0.14);
+  border: 2px dashed rgba(255, 140, 0, 0.55);
+  color: #ffffff;
+}
+
+body.dark-mode .force-hint {
+  background: rgba(255, 140, 0, 0.22);
+  color: #ffffff;
+}
+
+/* ---------- 配额达上限，已使用数字标红 ---------- */
+.quota-used-over {
+  mix-blend-mode: normal;
+  color: #d9534f;
+  font-weight: 700;
+}
+
+body.dark-mode .quota-used-over {
+  color: #ffb0a8;
+  text-shadow: 0 0 14px rgba(255, 100, 100, 0.7), 0 2px 6px rgba(0, 0, 0, 0.5);
 }
 
 /* ---------- 背景音乐 ---------- */
@@ -235,6 +285,7 @@ body.dark-mode .stats-grid div {
 }
 
 .music-title {
+  color: rgba(0, 0, 0, 0.62);
   font-size: 34px;
   font-weight: 700;
   max-width: 800px;
@@ -244,7 +295,7 @@ body.dark-mode .stats-grid div {
 }
 
 .music-author {
-  color: #909090;
+  color: rgba(0, 0, 0, 0.56);
   font-size: 28px;
   margin-top: 8px;
 }
@@ -273,12 +324,14 @@ body.dark-mode .stats-grid div {
 }
 
 .owner-name {
+  color: #ffffff;
   font-size: 42px;
   font-weight: 700;
+  mix-blend-mode: difference;
 }
 
 .owner-id {
-  color: #909090;
+  color: rgba(0, 0, 0, 0.62);
   font-size: 28px;
   margin-top: 6px;
 }
@@ -291,27 +344,23 @@ body.dark-mode .stats-grid div {
 
 .owner-stat {
   align-items: baseline;
-  color: #7c7c7c;
+  color: rgba(0, 0, 0, 0.62);
   display: inline-flex;
   gap: 8px;
   font-size: 26px;
 }
 
 .owner-stat b {
-  color: #444;
   font-size: 30px;
   font-weight: 700;
 }
 
-body.dark-mode .owner-stat {
-  color: #a9a9a9;
-}
-
-body.dark-mode .owner-stat b {
-  color: #e6e6e6;
-}
-
 .brand {
-  color: #909090;
+  color: rgba(0, 0, 0, 0.56);
   font-size: 28px;
+}
+
+/* ---------- 深色模式：次要信息改用浅灰，保证深浅场景均清晰 ---------- */
+body.dark-mode :is(.subline, .dy-id, .music-title, .music-author, .owner-id, .owner-stat, .brand) {
+  color: rgba(255, 255, 255, 0.82);
 }

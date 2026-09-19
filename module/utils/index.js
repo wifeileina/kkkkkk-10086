@@ -5,14 +5,14 @@ export { default as Config } from './Config.js'
 export { default as Common } from './Common.js'
 
 // ==================== 网络相关模块 ====================
-export { Networks, baseHeaders } from './Networks.js'
+export { Networks, baseHeaders, getRemoteFileSize } from './Networks.js'
 
 // ==================== 工具函数 ====================
 export { mergeFile, getMediaDuration, getMediaFrameRate, loopVideoWithTransition } from './FFmpeg.js'
 export { default as UploadRecord } from './UploadRecord.js'
 export * from './ImageHelper.js'
 export * from './EmojiReaction.js'
-export { makeForwardMsgBatched, MAX_FORWARD_NODES, MAX_FORWARD_MESSAGES, MAX_FORWARD_BYTES } from './ForwardMsg.js'
+export { makeForwardMsg, makeForwardMsgBatched, MAX_FORWARD_NODES, MAX_FORWARD_MESSAGES, MAX_FORWARD_BYTES } from './ForwardMsg.js'
 export * from './ErrorHandler/index.js'
 
 // ==================== 基础类 ====================

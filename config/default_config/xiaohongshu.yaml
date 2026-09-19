@@ -17,3 +17,6 @@ videoQuality: 4k
 
 # 视频体积上限，自动画质模式下可接受的最大视频大小（单位：MB）
 maxAutoVideoSize: 50
+
+# 体积优先：设置具体画质档位时，若该档位体积超过 maxAutoVideoSize 则自动下调到能发出的档位
+volumePriority: false

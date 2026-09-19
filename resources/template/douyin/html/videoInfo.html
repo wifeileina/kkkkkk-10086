@@ -26,6 +26,9 @@
       <span>{{create_time}}</span>
       {{if video && video.duration}}<span>时长 {{video.duration}}</span>{{/if}}
       {{if video && video.width}}<span>{{video.width}}×{{video.height}}</span>{{/if}}
+      {{if video && video.volumeAdjusted && video.size !== ''}}<span>{{video.size}} <span class="quota-used-over">{{video.sizeSet}}</span>/{{video.sizeLimit}}MB</span>
+      {{else if video && video.sizeExceeded && video.size !== ''}}<span><span class="quota-used-over">{{video.size}}</span>/{{video.sizeLimit}}MB</span>
+      {{else if video && video.size !== ''}}<span>{{video.size}}MB</span>{{/if}}
       {{if video && video.isHdr}}<span class="hdr-mark">HDR</span>{{/if}}
       <span class="dy-id">{{aweme_id}}</span>
     </div>
@@ -38,6 +41,12 @@
       <div><strong>{{statistics.collect_count}}</strong><span>收藏</span></div>
       <div><strong>{{statistics.share_count}}</strong><span>分享</span></div>
     </section>
+    {{if quotaInfo && quotaInfo.enabled}}
+    <div class="quota-hint">{{@quotaInfo.text}}</div>
+    {{/if}}
+    {{if quotaInfo && quotaInfo.showForceHint}}
+    <div class="quota-hint force-hint">继续下载指令：xk解析  权限:{{quotaInfo.forcePermissionLabel}}</div>
+    {{/if}}
     {{/if}}
 
     {{if music}}

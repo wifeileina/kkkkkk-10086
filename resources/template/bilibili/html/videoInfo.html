@@ -27,6 +27,9 @@
       <span>{{ctime}}</span>
       {{if video && video.resolution}}<span>{{video.resolution}}</span>{{/if}}
       {{if video && video.codec}}<span>{{video.codec}}</span>{{/if}}
+      {{if video && video.volAdjusted && video.size !== ''}}<span>{{video.size}} <span class="quota-used-over">{{video.sizeSet}}</span>/{{video.sizeLimit}}MB</span>
+      {{else if video && video.sizeExceeded && video.size !== ''}}<span><span class="quota-used-over">{{video.size}}</span>/{{video.sizeLimit}}MB</span>
+      {{else if video && video.size !== ''}}<span>{{video.size}}MB</span>{{/if}}
       <span>{{stats.view}} 播放</span>
       <span>{{stats.danmaku}} 弹幕</span>
       <span>{{stats.reply}} 评论</span>
@@ -43,6 +46,12 @@
       <div><strong>{{stats.favorite}}</strong><span>收藏</span></div>
       <div><strong>{{stats.share}}</strong><span>分享</span></div>
     </section>
+    {{if quotaInfo && quotaInfo.enabled}}
+    <div class="quota-hint">{{@quotaInfo.text}}</div>
+    {{/if}}
+    {{if quotaInfo && quotaInfo.showForceHint}}
+    <div class="quota-hint force-hint">继续下载指令：xk解析  权限:{{quotaInfo.forcePermissionLabel}}</div>
+    {{/if}}
 
     <footer class="footer">
       <div class="owner">

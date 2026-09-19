@@ -34,11 +34,11 @@ export class kkkStatistics extends plugin {
       priority: 2000,
       rule: [
         {
-          reg: /^#?kkk解析统计$/,
+          reg: /^#?xk解析统计$/,
           fnc: 'groupStatistics'
         },
         {
-          reg: /^#?kkk全局解析统计$/,
+          reg: /^#?xk全局解析统计$/,
           fnc: 'globalStatistics',
           permission: 'master'
         }

@@ -1,6 +1,7 @@
-import { Base, Config, UploadRecord, Networks, Render, Common, downloadFile, downloadVideo, uploadFile, baseHeaders, processImageUrl, makeForwardMsgBatched } from '../../utils/index.js'
+import { Base, Config, UploadRecord, Networks, Render, Common, downloadFile, downloadVideo, uploadFile, baseHeaders, processImageUrl, makeForwardMsg, makeForwardMsgBatched, getQuotaInfo, getRemoteFileSize } from '../../utils/index.js'
 import { getCachedData, setCachedData, runSingleFlightData } from '../../utils/ResourceCache.js'
 import { parseDouyinViaSharePage } from './sharePage.js'
+import { fetchDouyinDetailViaBrowser } from './webapi.js'
 import { markdown } from '@karinjs/md-html'
 import { burnDanmaku } from '../common/danmaku.js'
 import { buildLivePhotoMessages, buildLivePhotoTipMessage } from '../common/livePhoto.js'
@@ -36,6 +37,12 @@ import fs from 'fs'
  */
 
 let mp4size = ''
+let mp4sizeExceeded = false
+let mp4sizeLimit = 0
+let mp4sizeSet = ''
+let volumeAdjusted = false
+// 实际解析到的视频大小（字节）：优先取 bit_rate data_size，缺失时（分享页降级）由远程探测补充
+let parsedDataSize = 0
 let img
 
 const getFirstUrl = (data) => data?.url_list?.find(Boolean) || ''
@@ -71,6 +78,36 @@ const getDouyinMusicUrl = (music) => {
   }
 }
 
+const normalizeForwardText = (value) => String(value ?? '').replace(/\s+/g, ' ').trim()
+
+/** 构造合辑转发标题：@作者 作品描述 #标签，空字段不保留多余空格。 */
+const buildDouyinForwardTitle = (aweme = {}) => {
+  const description = normalizeForwardText(aweme.desc)
+  const tags = []
+  const addTag = (value) => {
+    const tag = normalizeForwardText(String(value ?? '').replace(/^#+/, ''))
+    if (tag && !tags.includes(tag)) tags.push(tag)
+  }
+
+  for (const item of aweme.text_extra || []) {
+    if (item?.hashtag_name) addTag(item.hashtag_name)
+  }
+
+  // 兼容分享页/降级数据没有 text_extra 的情况，从作品描述中提取 #标签。
+  const cleanDescription = description
+    .replace(/#\s*([^\s#]+)/g, (_, tag) => {
+      addTag(tag)
+      return ' '
+    })
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const author = normalizeForwardText(aweme.author?.nickname).replace(/^@+/, '')
+  return [`@${author || '未知用户'}`, cleanDescription, tags.map((tag) => `#${tag}`).join(' ')]
+    .filter(Boolean)
+    .join(' ')
+}
+
 const getDouyinLiveVideoUrl = (imageItem) => {
   const uri = imageItem?.video?.play_addr_h264?.uri || imageItem?.video?.play_addr?.uri
   return uri ? `https://aweme.snssdk.com/aweme/v1/play/?video_id=${uri}&ratio=1080p&line=0` : ''
@@ -86,6 +123,16 @@ const getDouyinQualityHeight = (quality) => {
 const getDouyinQualityRatio = (quality) => {
   const map = { '540p': '540p', '720p': '720p', '1080p': '1080p', '2k': '1440p', '4k': '2160p' }
   return map[quality] || '1080p'
+}
+
+/** 码流高度 → ratio 参数（体积优先下调档位后按实际选中码流换算） */
+const getDouyinHeightRatio = (height) => {
+  if (height >= 1900) return '2160p'
+  if (height >= 1400) return '1440p'
+  if (height >= 1000) return '1080p'
+  if (height >= 700) return '720p'
+  if (height >= 500) return '540p'
+  return '480p'
 }
 
 export class DouYin extends Base {
@@ -159,26 +206,27 @@ export class DouYin extends Base {
           const VideoData = await runSingleFlightData(dataKey, async () => {
             const cached = getCachedData(dataKey)
             if (cached) return cached
+            // 首选：浏览器环境请求 Web API（绕 Argus 风控，可获动图 clip_type/video 字段）
+            // 已移除「聚合解析」首选：amagi 纯 HTTP 请求在此环境被抖音 Argus 风控稳定拦截，
+            // 每次必然失败后降级，仅徒增失败请求与 WARN 日志；浏览器方案已覆盖详情获取。
             try {
-              const fresh = await this.amagi.getDouyinData('聚合解析', {
-                aweme_id: data.aweme_id,
-                typeMode: 'strict'
-              })
-              if (fresh?.data?.aweme_detail != null) {
-                setCachedData(dataKey, fresh)
-                return fresh
+              const browserData = await fetchDouyinDetailViaBrowser(data.aweme_id)
+              if (browserData?.data?.aweme_detail != null) {
+                browserData._source = 'browser'
+                setCachedData(dataKey, browserData)
+                return browserData
               }
-              logger.warn(`[抖音] 聚合解析返回空详情，降级分享页解析: ${data.aweme_id}`)
+              logger.warn(`[抖音] 浏览器解析返回空详情，降级分享页解析: ${data.aweme_id}`)
             } catch (error) {
-              logger.warn(`[抖音] 聚合解析失败，降级分享页解析: ${error?.message || error}`)
+              logger.warn(`[抖音] 浏览器解析失败，降级分享页解析: ${error?.message || error}`)
             }
-            // 降级链路：Web API 403/异常时抓取分享页 HTML 中的 _ROUTER_DATA
+            // 降级链路 2：浏览器不可用/失败时抓取分享页 HTML 中的 _ROUTER_DATA
             const shareData = await parseDouyinViaSharePage(data.aweme_id, Config.cookies.douyin || '')
             setCachedData(dataKey, shareData)
             return shareData
           })
-          // 数据来源标记（多群并发单飞时仍能正确识别分享页降级数据）
-          const usedSharePage = VideoData?._source === 'sharePage'
+          // 数据来源标记（多群并发单飞时仍能正确识别降级数据；降级链路不提供评论接口）
+          const usedSharePage = VideoData?._source === 'sharePage' || VideoData?._source === 'browser'
           if (VideoData.data.aweme_detail === null) {
             throw new Error('获取作品详情失败，可能是因为该作品已被删除或设置为私密。')
           }
@@ -255,6 +303,7 @@ export class DouYin extends Base {
                       staticUrl: imageItem.url_list?.[0] || imageItem.url_list?.[2] || imageItem.url_list?.[1],
                       liveVideoUrl: getDouyinLiveVideoUrl(imageItem),
                       index,
+                      total: images.length,
                       headers: {
                         ...this.headers,
                         Referer: 'https://www.douyin.com/',
@@ -308,17 +357,11 @@ export class DouYin extends Base {
                     await new Networks({ url: image_url, type: 'arraybuffer' }).getData().then((data) => fs.promises.writeFile(path, data))
                   }
                 }
-                const forwardList = await makeForwardMsgBatched(this.e, imageres, '解析完的图集图片')
-                image_data.push(forwardList[0])
+                const forwardTitle = buildDouyinForwardTitle(VideoData.data.aweme_detail)
+                const forward = await makeForwardMsg(this.e, imageres, forwardTitle)
+                image_data.push(forward)
                 image_res.push(image_data)
-                if (imageres.length === 1) {
-                  await this.e.reply(segment.image(await processImageUrl(image_url, g_title, 0, {
-                    Referer: 'https://www.douyin.com/',
-                    Cookie: Config.cookies.douyin || ''
-                  })))
-                } else {
-                  for (const forward of forwardList) await this.e.reply(forward)
-                }
+                await this.e.reply(forward)
                 break
               }
               // 合辑
@@ -346,18 +389,18 @@ export class DouYin extends Base {
                   logger.debug('未获取到合辑的图片数据')
                 }
                 g_title = VideoData.data.aweme_detail.preview_title?.substring(0, 50).replace(/[\\/:*?"<>|\r\n]/g, ' ') || '抖音图集'
-                for (const [index, item] of images1.entries()) {
-                  imagenum++
+                const buildOneLiveImage = async (index) => {
+                  const item = images1[index]
                   // 静态图片，clip_type为2或undefined
                   if (item.clip_type === 2 || item.clip_type === undefined) {
                     if (item.url_list[0]) {
-                      const processedImageUrl = await processImageUrl(item.url_list[0], VideoData.data.aweme_detail.preview_title || '抖音图集', imagenum, {
+                      const processedImageUrl = await processImageUrl(item.url_list[0], VideoData.data.aweme_detail.preview_title || '抖音图集', imagenum++, {
                         Referer: 'https://www.douyin.com/',
                         Cookie: Config.cookies.douyin || ''
                       })
-                      images.push(segment.image(processedImageUrl))
+                      return [segment.image(processedImageUrl)]
                     }
-                    continue
+                    return []
                   }
 
                   const livePhoto = await buildLivePhotoMessages({
@@ -365,6 +408,7 @@ export class DouYin extends Base {
                     staticUrl: item.url_list?.[0] || item.url_list?.[2] || item.url_list?.[1],
                     liveVideoUrl: getDouyinLiveVideoUrl(item),
                     index,
+                    total: images1.length,
                     headers: {
                       ...this.headers,
                       Referer: 'https://www.douyin.com/',
@@ -379,18 +423,33 @@ export class DouYin extends Base {
                   temp.push(...livePhoto.tempFiles)
                   hasGeneratedLivePhoto = hasGeneratedLivePhoto || livePhoto.generatedLivePhoto
 
-                  if (livePhoto.messages.length > 0) {
-                    images.push(...livePhoto.messages)
-                  } else if (item.url_list?.[0]) {
+                  if (livePhoto.messages.length > 0) return livePhoto.messages
+                  if (item.url_list?.[0]) {
                     const imageUrl = await processImageUrl(item.url_list[0], g_title, index, {
                       Referer: 'https://www.douyin.com/',
                       Cookie: Config.cookies.douyin || ''
                     })
-                    images.push(segment.image(imageUrl))
+                    return [segment.image(imageUrl)]
+                  }
+                  return []
+                }
+
+                // 并行合成实况图，但按原始下标写回，保证最终发图顺序不变。
+                // 连续 BGM 模式存在 bgmContext 前序依赖，必须串行，故并发放 1。
+                const poolSize = mergeMode === 'continuous' ? 1 : Math.max(1, Number(Config.douyin.liveImageConcurrency) || 2)
+                const built = new Array(images1.length)
+                let poolCursor = 0
+                const runLivePhotoWorker = async () => {
+                  while (poolCursor < images1.length) {
+                    const idx = poolCursor++
+                    built[idx] = await buildOneLiveImage(idx)
                   }
                 }
+                await Promise.all(Array.from({ length: Math.min(poolSize, images1.length) }, () => runLivePhotoWorker()))
+                images.push(...built.flat())
                 if (hasGeneratedLivePhoto) images.push(await buildLivePhotoTipMessage())
-                const forwardList = await makeForwardMsgBatched(this.e, images, '合辑内容')
+                const forwardTitle = buildDouyinForwardTitle(VideoData.data.aweme_detail)
+                const forwardList = await makeForwardMsgBatched(this.e, images, forwardTitle, 10, undefined, { titleOnce: true })
                 try {
                   for (const forward of forwardList) await this.e.reply(forward)
                 } catch (error) {
@@ -430,6 +489,8 @@ export class DouYin extends Base {
           let video = null
           let cover = ''
           let sourceIndex = 0
+          volumeAdjusted = false
+          mp4sizeSet = ''
           if (isVideo) {
             // 视频地址特殊判断：play_addr_h264、play_addr、
             video = VideoData.data.aweme_detail.video
@@ -440,7 +501,19 @@ export class DouYin extends Base {
               视频ID：${logger.green(VideoData.data.aweme_detail.aweme_id)}\n
               分享链接：${logger.green(VideoData.data.aweme_detail.share_url)}
               `)
-              video.bit_rate = douyinProcessVideos(video.bit_rate, Config.upload.filelimit || 100)
+              // 体积上限下载：按 douyin.maxAutoVideoSize 筛选可下载的视频流（根据大小自动选择模式）
+              const sizeLimitMb = Config.douyin.maxAutoVideoSize || 100
+              mp4sizeLimit = sizeLimitMb
+              const limitBytes = sizeLimitMb * 1024 * 1024
+              const usableStreams = (video.bit_rate || []).filter(item => item.format !== 'dash')
+              // 体积优先+具体档位：保留完整码流列表以便后续下调档位，不在此做单流折叠
+              const volPriTier = Config.douyin.volumePriority && !!getDouyinQualityHeight(Config.douyin.videoQuality)
+              if (!volPriTier) {
+                mp4sizeExceeded = usableStreams.length > 0 && usableStreams.every(item => (item.play_addr?.data_size || 0) > limitBytes)
+                video.bit_rate = douyinProcessVideos(video.bit_rate, sizeLimitMb)
+              } else {
+                mp4sizeExceeded = false
+              }
             }
             // 视频地址按适配器分支：
             // - QQBot：官方 bot 用裸请求抓取视频 URL，私有 CDN 长链会 403，故用 aweme.snssdk.com 无签名 play 直链（kkk 原方式）
@@ -462,27 +535,83 @@ export class DouYin extends Base {
                 }
                 sourceIndex = best.i
               }
+              // 记录设定档位体积（下调前所选码流），供信息图显示“实际解析体积 设定档位体积/限制体积”
+              mp4sizeSet = ((video.bit_rate[sourceIndex]?.play_addr?.data_size || 0) / (1024 * 1024)).toFixed(2)
+              // 体积优先：设置具体档位时，若该档位体积超过 maxAutoVideoSize 则自动下调到能发出的档位
+              if (Config.douyin.volumePriority && video.bit_rate?.length) {
+                mp4sizeLimit = Config.douyin.maxAutoVideoSize || 100
+                const vpLimitBytes = mp4sizeLimit * 1024 * 1024
+                const candidates = video.bit_rate.filter(item => item.format !== 'dash' && (item.play_addr?.data_size || 0) > 0)
+                if (candidates.length) {
+                  const chosenBytes = video.bit_rate[sourceIndex]?.play_addr?.data_size || 0
+                  if (chosenBytes > vpLimitBytes) {
+                    const fit = candidates.filter(c => (c.play_addr?.data_size || 0) <= vpLimitBytes)
+                    const pool = fit.length ? fit : candidates
+                    const byRes = (c) => (c.play_addr?.height || 0) || (c.play_addr?.width || 0) || 0
+                    const pick = fit.length
+                      ? pool.reduce((a, b) => (byRes(b) > byRes(a) ? b : a))
+                      : pool.reduce((a, b) => ((b.play_addr?.data_size || 0) < (a.play_addr?.data_size || 0) ? b : a))
+                    const realIdx = video.bit_rate.indexOf(pick)
+                    if (realIdx >= 0) {
+                      sourceIndex = realIdx
+                      volumeAdjusted = true
+                      mp4sizeExceeded = false
+                    }
+                  }
+                }
+              }
             }
-            const playRatio = getDouyinQualityRatio(Config.douyin.videoQuality)
+            // 体积优先下调档位后，下载与展示均跟随实际选中码流：ratio 按所选码流高度换算，OneBot 直接走所选码流 CDN 直链
+            let playRatio = getDouyinQualityRatio(Config.douyin.videoQuality)
+            if (volumeAdjusted) {
+              playRatio = getDouyinHeightRatio(video.bit_rate[sourceIndex]?.play_addr?.height || 0)
+            }
             const rb = (video.bit_rate && video.bit_rate.length ? video.bit_rate[sourceIndex].play_addr : null) || video.play_addr_h264 || video.play_addr
             if (this.botadapter === 'QQBot') {
               const playUri = rb?.uri || video.play_addr?.uri || ''
               g_video_url = `https://aweme.snssdk.com/aweme/v1/play/?video_id=${playUri}&ratio=${playRatio}&line=0`
             } else {
-              g_video_url = await new Networks({
-                url: rb?.url_list?.[1] || rb?.url_list?.[0],
-                headers: {
-                  ...this.headers,
-                  Referer: rb?.url_list?.[0] || 'https://www.douyin.com/',
-                  Cookie: ''
-                }
-              }).getLongLink()
+              // OneBot：配置了具体画质档时用 aweme play 的 ratio 参数强制清晰度（bit_rate 各档 height 多为相同值/缺失，按高度挑档不可靠）；
+              // 未配置具体档（adapt/hdr）或体积优先已下调档位则沿用所选码流 CDN 签名长链，最大化兼容
+              const configuredQ = Config.douyin.videoQuality
+              const useRatioEndpoint = playRatio && configuredQ && configuredQ !== 'adapt' && configuredQ !== 'hdr' && !volumeAdjusted && rb?.uri
+              if (useRatioEndpoint) {
+                g_video_url = `https://aweme.snssdk.com/aweme/v1/play/?video_id=${rb.uri}&ratio=${playRatio}&line=0`
+              } else {
+                g_video_url = await new Networks({
+                  url: rb?.url_list?.[1] || rb?.url_list?.[0],
+                  headers: {
+                    ...this.headers,
+                    Referer: rb?.url_list?.[0] || 'https://www.douyin.com/',
+                    Cookie: ''
+                  }
+                }).getLongLink()
+              }
             }
             cover = getFirstUrl(video.animated_cover) || getFirstUrl(video.dynamic_cover) || getFirstUrl(video.cover_original_scale) || getFirstUrl(video.cover) || getFirstUrl(video.origin_cover)
 
             const title = VideoData.data.aweme_detail.preview_title.substring(0, 80).replace(/[\\/:\*\?"<>\|\r\n]/g, ' ') // video title
             g_title = title
-            mp4size = ((video.bit_rate[sourceIndex]?.play_addr?.data_size || 0) / (1024 * 1024)).toFixed(2)
+            // 文件大小：配置了具体画质档时按目标档与原画高的比例折算展示，避免仍显示为最高档大小
+            const szQ = Config.douyin?.videoQuality
+            const szQH = getDouyinQualityHeight(szQ)
+            const szSrcH = video.height || 0
+            const szFixed = szQ && szQ !== 'adapt' && szQ !== 'hdr' && szQH > 0 && szSrcH > 0
+            const szScale = szFixed ? Math.min(1, szQH / szSrcH) : 1
+            // 体积优先下调档位后，直接采用所选码流的实际大小
+            mp4size = (((video.bit_rate[sourceIndex]?.play_addr?.data_size || 0) * (volumeAdjusted ? 1 : szScale)) / (1024 * 1024)).toFixed(2)
+            // 实际解析体积（字节）：分享页降级等 data_size 缺失时为 0，需远程探测补充用于体积展示与配额预估
+            parsedDataSize = video.bit_rate?.[sourceIndex]?.play_addr?.data_size || 0
+            if (!parsedDataSize && g_video_url) {
+              const probed = await getRemoteFileSize(g_video_url, {
+                ...baseHeaders,
+                Referer: g_video_url
+              })
+              if (probed > 0) {
+                parsedDataSize = probed
+                mp4size = (probed / (1024 * 1024)).toFixed(2)
+              }
+            }
             logger.info('视频地址', `https://aweme.snssdk.com/aweme/v1/play/?video_id=${VideoData.data.aweme_detail.video.play_addr.uri}&ratio=1080p&line=0`)
           }
 
@@ -541,18 +670,39 @@ export class DouYin extends Base {
                 }
                 : undefined
               const selectedVideo = video.bit_rate?.[sourceIndex]
+              // 展示实际选中码流/目标档的宽高，使信息图与实际下载的清晰度一致。
+              // 配置了具体画质档时直接按目标档等比换算（bit_rate 各档 height 不可靠，避免误显示为原画最高档）
+              const cfgQ = Config.douyin?.videoQuality
+              const qH = getDouyinQualityHeight(cfgQ)
+              const sh = selectedVideo?.play_addr?.height
+              const srcH = video.height || sh || 0
+              const cfgFixed = cfgQ && cfgQ !== 'adapt' && cfgQ !== 'hdr' && qH > 0 && srcH > 0
+              // 体积优先下调档位后，分辨率展示所选码流的实际宽高，与下载一致
+              const showH = volumeAdjusted
+                ? ((sh && sh > 0) ? sh : srcH)
+                : (cfgFixed ? Math.min(qH, srcH) : ((sh && sh > 0) ? sh : video.height))
+              const showW = volumeAdjusted
+                ? (selectedVideo?.play_addr?.width || video.width)
+                : (cfgFixed
+                  ? Math.round((video.width || srcH) * showH / srcH)
+                  : (selectedVideo?.play_addr?.width || video.width))
               const videoInfo = video
                 ? {
                   duration: formatVideoDuration(video.duration),
                   // 展示实际选中码流的宽高，与下载一致的清晰度，避免仍显示最高档
-                  width: selectedVideo?.play_addr?.width || video.width,
-                  height: selectedVideo?.play_addr?.height || video.height,
+                  width: showW,
+                  height: showH,
                   ratio: video.ratio,
                   isHdr: (() => {
                     const src = video.bit_rate
                     const hdrOf = (item) => item?.HDR_type || item?.hdr_type || item?.play_addr?.hdr_type
                     return hdrOf(video.bit_rate?.[sourceIndex]) || src?.some(hdrOf) || false
-                  })()
+                  })(),
+                  size: mp4size,
+                  sizeExceeded: mp4sizeExceeded,
+                  sizeLimit: mp4sizeLimit,
+                  sizeSet: mp4sizeSet,
+                  volumeAdjusted
                 }
                 : undefined
               const desc = aweme.desc || g_title
@@ -585,14 +735,15 @@ export class DouYin extends Base {
                 },
                 user_profile: userProfileView,
                 music: musicInfo,
-                video: videoInfo
+                video: videoInfo,
+                quotaInfo: getQuotaInfo(this.e, parsedDataSize || video.bit_rate?.[sourceIndex]?.play_addr?.data_size || 0)
               })
               await this.e.reply(videoInfoImg)
             }
           }
 
           /** 发送视频 */
-          if (isVideo && hasDouyinContent('视频', 'video') && sendvideofile) {
+          if (isVideo && hasDouyinContent('视频', 'video') && sendvideofile && !mp4sizeExceeded) {
             let danmakuList = []
             const sendOriginalVideo = async () => {
               await downloadVideo(

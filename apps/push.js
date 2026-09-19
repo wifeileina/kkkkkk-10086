@@ -17,8 +17,8 @@ export class kkkPush extends plugin {
         { reg: /^#设置[bB]站推送/, fnc: 'setbiliPush', permission: Config.bilibili.push.permission },
         { reg: /^#(抖音|[bB]站)(全部)?强制推送/, fnc: 'forcePush', permission: 'master' },
         { reg: /^#(抖音|[bB]站)推送列表$/, fnc: 'pushlist' },
-        { reg: /^#kkk设置推送机器人/, fnc: 'changeBotID', permission: 'master' },
-        { reg: /^#kkk推送全局忽略/, fnc: 'globalIgnore', permission: 'master' }
+        { reg: /^#?xk设置推送机器人/, fnc: 'changeBotID', permission: 'master' },
+        { reg: /^#?xk推送全局忽略/, fnc: 'globalIgnore', permission: 'master' }
       ]
     })
 
@@ -156,8 +156,8 @@ export class kkkPush extends plugin {
    * @returns {Promise<boolean>} 返回一个Promise，解析为true表示操作成功
    */
   async changeBotID(e) {
-    // 定义匹配命令的正则表达式，用于识别"#kkk设置推送机器人"开头的消息
-    const command = /^#kkk设置推送机器人/
+    // 定义匹配命令的正则表达式，用于识别"#xk设置推送机器人"开头的消息
+    const command = /^#?xk设置推送机器人/
     // 从消息中提取新的机器人ID，移除命令部分
     const newBotId = e.msg.replace(command, '')
 
@@ -186,7 +186,7 @@ export class kkkPush extends plugin {
   }
 
   async globalIgnore(e) {
-    const url = e.msg.replace(/^#kkk推送全局忽略/, '').trim().match(/https?:\/\/[^\s]+/i)?.[0]
+    const url = e.msg.replace(/^#?xk推送全局忽略/, '').trim().match(/https?:\/\/[^\s]+/i)?.[0]
     if (!url) {
       await e.reply('请提供要忽略的抖音作品或B站动态链接')
       return true

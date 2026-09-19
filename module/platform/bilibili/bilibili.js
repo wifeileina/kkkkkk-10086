@@ -1,4 +1,4 @@
-import { Base, Render, Config, Networks, mergeFile, Common, baseHeaders, downloadFile, uploadFile, downloadVideo, processImageUrl, makeForwardMsgBatched } from '../../utils/index.js'
+import { Base, Render, Config, Networks, mergeFile, Common, baseHeaders, downloadFile, uploadFile, downloadVideo, processImageUrl, makeForwardMsgBatched, getQuotaInfo } from '../../utils/index.js'
 import { getCachedData, setCachedData, runSingleFlightData, runSingleFlight } from '../../utils/ResourceCache.js'
 import { bilibiliApiUrls, DynamicType, AdditionalType, wbi_sign } from '@ikenxuan/amagi'
 import { getBilibiliData } from './api.js'
@@ -154,7 +154,12 @@ export class Bilibili extends Base {
             resolution: displayPickStream?.width
               ? `${displayPickStream.width}×${displayPickStream.height}`
               : (playUrlStream?.width ? `${playUrlStream.width}×${playUrlStream.height}` : ''),
-            codec: biliCodecMap[biliStreamCodec] || ''
+            codec: biliCodecMap[biliStreamCodec] || '',
+            size: ((displayPickStream?.size || playUrlStream?.size || 0) / (1024 * 1024)).toFixed(2),
+            sizeLimit: Config.bilibili.maxAutoVideoSize || 0,
+            sizeSet: '',
+            sizeExceeded: false,
+            volAdjusted: false
           }
 
           // 构建回复内容数组
@@ -208,7 +213,8 @@ export class Bilibili extends Base {
                   face: userProfileData.data.data.card.face || owner.face,
                   fans: Common.count(userProfileData.data.data.follower),
                   total_favorited: Common.count(userProfileData.data.data.like_num)
-                }
+                },
+                quotaInfo: getQuotaInfo(this.e, playUrlStream?.size || 0)
               }))
             } else {
               /**
@@ -249,6 +255,8 @@ export class Bilibili extends Base {
           let videoSize = ''
           /** @type {{ accept_description: string[], videoList: videoDownloadUrlList, selectedQuality: string }} */
           let correctList = { accept_description: [], videoList: [], selectedQuality: '未知' } // 提供默认值
+          videoMeta.sizeExceeded = false
+          videoMeta.volAdjusted = false
 
           if (this.islogin && Config.bilibili.videopriority === false && playUrlPayload.dash?.video?.length && playUrlPayload.dash?.audio?.length) {
             /** 过滤视频流信息对象，排除清晰度重复的视频流 */
@@ -269,6 +277,16 @@ export class Bilibili extends Base {
             playUrlPayload.accept_description = correctList.accept_description
             /** 获取第一个视频流的大小 */
             videoSize = await getvideosize(correctList.videoList[0]?.base_url || '', playUrlPayload.dash?.audio?.[0]?.base_url || '', infoData.data.data.bvid)
+            if (correctList.allExceed) videoMeta.sizeExceeded = true
+            if (correctList.volAdjusted) videoMeta.volAdjusted = true
+            // 体积优先下调档位后，展示所选码流的实际大小（与下载一致）
+            if (correctList.volAdjusted) {
+              videoMeta.size = videoSize
+              videoMeta.sizeSet = correctList.volSetSizeMb ? correctList.volSetSizeMb.toFixed(2) : ''
+              videoMeta.resolution = correctList.videoList[0]?.width
+                ? `${correctList.videoList[0].width}×${correctList.videoList[0].height}`
+                : videoMeta.resolution
+            }
           } else {
             videoSize = ((playUrlStream?.size || 0) / (1024 * 1024)).toFixed(2)
           }
@@ -308,7 +326,9 @@ export class Bilibili extends Base {
           }
 
           if (hasBilibiliContent('视频', 'video')) {
-            if (Config.upload.usefilelimit && Number(videoSize) > Number(Config.upload.filelimit)) {
+            if (correctList.allExceed) {
+              await this.e.reply(`解析到的视频所有清晰度均超过 ${Config.bilibili.maxAutoVideoSize || 100}MB，已停止下载\n当前体积上限：${Config.bilibili.maxAutoVideoSize || 100}MB`, { reply: true })
+            } else if (Config.upload.usefilelimit && Number(videoSize) > Number(Config.upload.filelimit)) {
               await this.e.reply(`设定的最大上传大小为 ${Config.upload.filelimit}MB\n当前解析到的视频大小为 ${Number(videoSize)}MB\n` + '视频太大了，还是去B站看吧~', { reply: true })
             } else {
               await this.getvideo(
@@ -407,6 +427,10 @@ export class Bilibili extends Base {
               bvid: videoInfo.data.result.season_id.toString(),
               qn: Config.bilibili.videoQuality
             }, simplify, playUrlData.result.dash.audio[0].base_url)
+            if (correctList.allExceed) {
+              this.e.reply(`解析到的视频所有清晰度均超过 ${Config.bilibili.maxAutoVideoSize || 100}MB，已停止下载\n当前体积上限：${Config.bilibili.maxAutoVideoSize || 100}MB`, { reply: true })
+              break
+            }
             playUrlData.result.dash.video = correctList.videoList
             playUrlData.result.cept_description = correctList.accept_description
             await this.getvideo({
@@ -1295,10 +1319,13 @@ const oid = (dynamicINFO) => {
  * @param {string[]} qualityOptions.accept_description - 视频流清晰度列表
  * @param {videoDownloadUrlList} videoList - 包含所有清晰度的视频流信息对象
  * @param {string} audioUrl - 音频流地址
- * @returns {Promise<{ accept_description: string[]; videoList: videoDownloadUrlList; selectedQuality: string }>} 包含处理后的视频列表和清晰度描述的对象
+ * @returns {Promise<{ accept_description: string[]; videoList: videoDownloadUrlList; selectedQuality: string; allExceed?: boolean; volAdjusted?: boolean; volSetSizeMb?: number }>} 包含处理后的视频列表和清晰度描述的对象
  * @property {string[]} returns.accept_description - 处理后的清晰度描述列表
  * @property {Object[]} returns.videoList - 处理后的视频流信息对象列表
  * @property {string} returns.selectedQuality - 选中的视频画质值
+ * @property {boolean} returns.allExceed - 所有清晰度是否均超过体积上限
+ * @property {boolean} returns.volAdjusted - 体积优先是否已自动下调档位
+ * @property {number} returns.volSetSizeMb - 设定档位的体积（MB）
  */
 export const bilibiliProcessVideos = async (qualityOptions, videoList, audioUrl) => {
   // 如果不是自动选择模式，直接根据配置的清晰度选择视频
@@ -1330,6 +1357,37 @@ export const bilibiliProcessVideos = async (qualityOptions, videoList, audioUrl)
       }
     }
 
+    // 体积优先：设置具体档位时，若该档位体积超过 maxAutoVideoSize 则自动下调到能发出的档位
+    let volAdjusted = false
+    let volSetSizeMb = 0
+    const volPri = Config.bilibili.volumePriority
+    if (volPri && matchedVideo && videoList.length > 1) {
+      const vpLimit = qualityOptions?.maxAutoVideoSize || Config.bilibili.maxAutoVideoSize || 100
+      const vpLimitBytes = vpLimit * 1024 * 1024
+      try {
+        const matchSize = await getvideosize(matchedVideo.base_url, audioUrl, qualityOptions.bvid)
+        const matchBytes = parseFloat(matchSize.replace('MB', '')) * 1024 * 1024
+        if (matchBytes > vpLimitBytes) {
+          volSetSizeMb = parseFloat(matchSize.replace('MB', ''))
+          // 取所有体积不超过限制的码流中 id 最高的一档；全部超限时取 id 最低的一档兜底
+          const candidates = []
+          for (const video of videoList) {
+            const size = await getvideosize(video.base_url, audioUrl, qualityOptions.bvid)
+            candidates.push({ video, size: parseFloat(size.replace('MB', '')) })
+          }
+          const fit = candidates.filter(c => c.size <= vpLimit)
+          const pool = fit.length ? fit : candidates
+          const pick = fit.length
+            ? pool.reduce((a, b) => (b.video.id > a.video.id ? b : a))
+            : pool.reduce((a, b) => (b.video.id < a.video.id ? b : a))
+          matchedVideo = pick.video
+          volAdjusted = true
+        }
+      } catch (error) {
+        logger.warn(`[B站] 体积优先下调档位失败，保持原档位: ${error?.message || error}`)
+      }
+    }
+
     // 更新视频列表和清晰度描述
     /** @type {string} */
     const matchedQuality = (matchedVideo?.id && qnd[matchedVideo?.id]) || qualityOptions.accept_description[0] || '未知'
@@ -1339,7 +1397,10 @@ export const bilibiliProcessVideos = async (qualityOptions, videoList, audioUrl)
     return {
       accept_description: qualityOptions.accept_description,
       videoList,
-      selectedQuality: matchedQuality
+      selectedQuality: matchedQuality,
+      allExceed: false,
+      volAdjusted: volAdjusted || false,
+      volSetSizeMb: volSetSizeMb || 0
     }
   }
 
@@ -1371,6 +1432,8 @@ export const bilibiliProcessVideos = async (qualityOptions, videoList, audioUrl)
   let smallestDifference = Infinity
   /** @type {number | null} */
   let largestUnderLimit = null // 新增：记录小于限制的最大视频ID
+  /** @type {boolean} */
+  let allExceed = false // 所有清晰度均超过体积上限
 
   Object.entries(results).forEach(([id, sizeStr]) => {
     /** @type {number} */
@@ -1442,7 +1505,8 @@ export const bilibiliProcessVideos = async (qualityOptions, videoList, audioUrl)
     }
     selectedQuality = closestQuality // 设置选中的画质值
   } else {
-    // 如果没有找到符合条件的视频，使用最低画质的视频对象
+    // 所有清晰度均超过体积上限：标记 allExceed，仍保留最低画质供兜底，由下载层拦截
+    allExceed = true
     const lastVideo = [...videoList].pop()
     if (lastVideo) {
       videoList = [lastVideo]
@@ -1459,7 +1523,10 @@ export const bilibiliProcessVideos = async (qualityOptions, videoList, audioUrl)
   return {
     accept_description: qualityOptions.accept_description,
     videoList,
-    selectedQuality  // 添加选中的画质值到返回对象
+    selectedQuality, // 添加选中的画质值到返回对象
+    allExceed: allExceed || false,
+    volAdjusted: false,
+    volSetSizeMb: 0
   }
 }
 

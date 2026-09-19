@@ -1,4 +1,4 @@
-import { Base, Config, Render, Networks, downloadVideo } from '../../utils/index.js'
+import { Base, Config, Render, Networks, downloadVideo, getQuotaInfo } from '../../utils/index.js'
 import  comments  from './comments.js'
 
 export default class KuaiShou extends Base {
@@ -34,7 +34,8 @@ export default class KuaiShou extends Base {
         CommentLength: String(CommentsData?.length ? CommentsData.length : 0),
         share_url: video_url,
         VideoSize: videoSizeInMB,
-        likeCount: videoDetail.photo.likeCount
+        likeCount: videoDetail.photo.likeCount,
+        quotaInfo: getQuotaInfo(this.e, Size)
       }
     )
     await this.e.reply(img)

@@ -16,3 +16,4 @@ test/
 *.bak
 check_git_push.sh
 git_push.sh
+*.bak*

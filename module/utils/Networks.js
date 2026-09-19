@@ -118,6 +118,26 @@ export const baseHeaders = {
 }
 
 /**
+ * 轻量探测远程文件大小（字节）。复用 getHeaders 的短超时 GET + 立即销毁流的做法，避免真正下载。
+ * @param {string} url 远程资源地址
+ * @param {Record<string, string>} [headers] 额外请求头
+ * @returns {Promise<number>} 文件大小（字节），无法获取时返回 0
+ */
+export const getRemoteFileSize = async (url, headers = {}) => {
+  try {
+    const nets = new Networks({ url, method: 'GET', headers })
+    const h = await nets.getHeaders()
+    const cr = String(h?.['content-range'] || '')
+    const m = /^\s*bytes\s+\d+-\d+\/(\d+)/.exec(cr)
+    if (m) return Number(m[1])
+    const length = Number(h?.['content-length'] || 0)
+    return Number.isFinite(length) && length > 0 ? length : 0
+  } catch {
+    return 0
+  }
+}
+
+/**
  * 网络请求类，提供HTTP请求、文件下载等功能
  */
 export class Networks {

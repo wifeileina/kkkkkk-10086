@@ -16,7 +16,7 @@ const getDouyinQualityHeight = (quality) => {
 
 /**
  * 抖音分享页 HTML 解析（Web API 403 时的降级链路）
- * 与 astrbot_plugin_parser_lite 同构：请求 www.iesdouyin.com/share/video/{id}/
+ * 与其他解析器同构：请求 www.iesdouyin.com/share/video/{id}/
  * 页面，正则提取 window._ROUTER_DATA 内嵌的 SSR 数据，不依赖官方 Web API，
  * 天然绕开 a_bogus 签名风控。
  */
@@ -148,7 +148,13 @@ const getFirstUrl = (data) => Array.isArray(data?.url_list) ? data.url_list.find
  * @returns {Object} aweme_detail 兼容结构
  */
 const normalizeAwemeDetail = (raw) => {
-  const video = raw?.video || {}
+  const rawVideo = raw?.video
+  const rawVideoUri = rawVideo?.play_addr?.uri || ''
+  const hasImages = Array.isArray(raw?.images) && raw.images.length > 0
+  // 图文作品的 video.play_addr 实为背景音乐（完整URL/.mp3），非真实视频流，
+  // 若仍当作视频会导致下载音乐文件冒充 mp4 发送（rich media transfer failed）
+  const isMusicOnlyVideo = hasImages && (/^https?:/i.test(rawVideoUri) || /\.mp3/i.test(rawVideoUri))
+  const video = isMusicOnlyVideo ? null : (rawVideo || {})
   const playUrl = video?.play_addr?.url_list?.find(Boolean) || ''
   const playUri = video?.play_addr?.uri || ''
   const durationMs = video?.duration || 0

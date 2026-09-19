@@ -35,10 +35,10 @@ class Tools {
    * 注册可通过本地服务预览的视频文件。
    * @param {string} filePath 视频绝对路径
    * @param {boolean} [removeCache=Config.app.removeCache] 是否会自动删除
-   * @param {number} [ttlMs=10 * 60 * 1000] 预览有效期
+   * @param {number} [ttlMs=缓存保存时间(分钟)*60*1000] 预览有效期
    * @returns {{ filename: string, filePath: string, removeCache: boolean, createdAt: number, expireAt?: number }}
    */
-  registerVideoPreview(filePath, removeCache = Config.app.removeCache, ttlMs = 10 * 60 * 1000) {
+  registerVideoPreview(filePath, removeCache = Config.app.removeCache, ttlMs = (Config.app.cacheRetentionMinutes || 10) * 60 * 1000) {
     const filename = path.basename(filePath)
     const createdAt = Date.now()
     const info = {
@@ -147,7 +147,9 @@ class Tools {
   async extractMessageText(messages, source = '消息') {
     for (const msg of messages || []) {
       if (['text', 'json'].includes(msg?.type)) {
-        const text = msg.text || msg.data || msg.data?.text || msg.data?.data || ''
+        // 兼容多种消息段结构（flat 文本 / onebot data.text / data.data ...），只取首个字符串型字段，避免短路到对象
+        const text = [msg.text, msg.data?.text, msg.data, msg.data?.data, msg.data?.data?.text]
+          .find(v => typeof v === 'string') || ''
         const markdownText = await this.extractMarkdownText(text, source)
         if (markdownText) return markdownText
         if (text) return text
@@ -193,16 +195,23 @@ class Tools {
   async getReplyMessage(e) {
     const botAdapter = new Base(e).botadapter
     const currentMessageText = await this.extractMessageText(e.message, '当前消息')
+    // 剥离包裹链接的反引号（markdown 代码块包裹）与首尾空白，避免污染后续平台匹配/ID提取
+    const cleanText = (text) => String(text || '').trim().replace(/^`+|`+$/g, '')
     if (currentMessageText && supportedLinkPatterns.some(pattern => pattern.test(currentMessageText))) {
-      return currentMessageText
+      return cleanText(currentMessageText)
     }
-    // TRSS-Yunzai 处理
-    if (Version.BotName === 'TRSS-Yunzai' && e.reply_id) {
-      const replyMsg = await e.getReply()
-      if (replyMsg) {
-        const sourceArray = Array.isArray(replyMsg) ? replyMsg : [replyMsg]
-        const replyText = await this.extractMessageText(sourceArray.flatMap(item => item.message), '引用消息')
-        if (replyText) e.msg = replyText
+    // TRSS-Yunzai 处理（兼容 QQ/Milky 与 OneBot 等连接：getReply 返回的可能是含 data.message 的 ApiReturn，也可能是直接含 message 的对象）
+    if (Version.BotName === 'TRSS-Yunzai' && e.reply_id && typeof e.getReply === 'function') {
+      try {
+        const replyMsg = await e.getReply()
+        if (replyMsg) {
+          const msgSegments = replyMsg?.data?.message || replyMsg?.message || replyMsg
+          const segments = Array.isArray(msgSegments) ? msgSegments : (msgSegments ? [msgSegments] : [])
+          const replyText = await this.extractMessageText(segments, '引用消息')
+          if (replyText) e.msg = replyText
+        }
+      } catch (err) {
+        logger.warn(`[引用解析] 获取引用消息失败: ${err?.message || err}`)
       }
     }
     // ICQQ适配器处理
@@ -222,6 +231,7 @@ class Tools {
         if (replyText) e.msg = replyText
       }
     }
+    if (e.msg) e.msg = cleanText(e.msg)
     return e.msg || ''
   }
 

@@ -241,7 +241,8 @@ const buildGoogleMotionPhoto = async ({ imagePath, videoPath, outputPath, presen
  * @param {string} options.platform 日志与临时文件前缀
  * @param {string} options.staticUrl 静态图地址
  * @param {string} options.liveVideoUrl 实况图视频地址
- * @param {number} options.index 当前图片序号
+ * @param {number} options.index 当前图片序号(从0开始)
+ * @param {number} [options.total] 实况图总数，用于进度展示
  * @param {import('axios').AxiosRequestConfig['headers']} [options.headers]
  * @param {string} [options.bgmPath] 本地 BGM 文件路径
  * @param {'independent'|'continuous'} [options.mergeMode] BGM 合并模式
@@ -264,13 +265,19 @@ export const buildLivePhotoMessages = async (options) => {
   const headers = options.headers || baseHeaders
   const name = getTimestampName()
   const index = options.index || 0
+  const total = options.total || 0
+  const progress = total > 1 ? `[${platform}] 实况图 ${index + 1}/${total}` : `[${platform}] 实况图`
+  const logPass = (step) => logger.info(`${progress} → ${step}`)
   const staticPath = path.join(Common.tempDri.images, `${platform}_static_${name}_${index}.jpg`)
   const liveVideoPath = path.join(Common.tempDri.video, `${platform}_live_src_${name}_${index}.mp4`)
 
   try {
+    logPass('下载素材')
     const staticFile = await downloadToFile(options.staticUrl, staticPath, headers)
     const liveVideo = await downloadToFile(options.liveVideoUrl, liveVideoPath, headers)
     tempFiles.push(staticFile, liveVideo)
+
+    if (shouldGenerateVideo || shouldGenerateLivePhoto) logPass('合成处理中')
 
     if (shouldGenerateVideo) {
       const loopPath = path.join(Common.tempDri.video, `${platform}_live_loop_${name}_${index}.mp4`)
@@ -302,6 +309,7 @@ export const buildLivePhotoMessages = async (options) => {
       }
     }
 
+    logPass(messages.length > 0 ? '处理完成' : '处理完成(无输出)')
     return { messages, tempFiles, generatedLivePhoto: messages.some(item => item?.type === 'image'), context: options.context }
   } catch (error) {
     logger.warn(`[${platform}] 实况图处理失败，将回退普通图片`, error)

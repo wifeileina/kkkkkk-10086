@@ -849,7 +849,7 @@ export class Bilibilipush extends Base {
 
         // 检查推送状态
         if (Config.bilibili?.push?.switch === false) {
-          await this.e.reply('请发送「#kkk设置B站推送开启」以进行推送')
+          await this.e.reply('请发送「#设置B站推送开启」以进行推送')
         }
 
         existingItem.group_id.push(`${groupId}:${botId}`)
@@ -862,7 +862,7 @@ export class Bilibilipush extends Base {
 
       // 检查推送状态
       if (Config.bilibili?.push?.switch === false) {
-        await this.e.reply('请发送「#kkk设置B站推送开启」以进行推送')
+        await this.e.reply('请发送「#设置B站推送开启」以进行推送')
       }
 
       // 不存在相同的 host_mid，新增一个配置项

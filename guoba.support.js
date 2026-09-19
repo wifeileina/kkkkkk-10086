@@ -251,7 +251,7 @@ const bilibiliPushListSchema = {
 const schemas = [
   group('基础配置'),
   divider('Cookie 配置'),
-  password('cookies.douyin', '抖音 Cookie', '登录 https://www.douyin.com/ 获取请求头中的 Cookie，或使用 #kkk设置抖音ck 查看教程'),
+  password('cookies.douyin', '抖音 Cookie', '登录 https://www.douyin.com/ 获取请求头中的 Cookie，或使用 xk设置抖音ck 查看教程'),
   password('cookies.bilibili', 'B站 Cookie', '不设置时视频画质通常受限，登录 https://www.bilibili.com/ 获取请求头中的 Cookie'),
   password('cookies.kuaishou', '快手 Cookie', '登录 https://www.kuaishou.com/new-reco 获取请求头中的 Cookie'),
   password('cookies.xiaohongshu', '小红书 Cookie', '登录 https://www.xiaohongshu.com/ 获取请求头中的 Cookie'),
@@ -265,6 +265,7 @@ const schemas = [
   sw('app.parseTip', '解析提示', '发送“检测到链接，开始解析”提示'),
   sw('app.EmojiReply', '表情回应', '适配器或平台不支持时可关闭'),
   sw('app.removeCache', '删除视频缓存', '自动删除下载到本地的视频缓存'),
+  num('app.cacheRetentionMinutes', '缓存保存时间', 1, 10080, '分钟', '下载的视频/图片缓存保留时长，超时自动清理；需开启“删除视频缓存”'),
   sw('app.sendforwardmsg', '发送合并转发消息'),
   sw('app.fakeForward', '伪造合并转发消息', '开启后使用触发者身份展示转发'),
   select('app.errorLogSendTo', '错误日志接收者', [
@@ -330,6 +331,7 @@ const schemas = [
   sw('douyin.textMode', '文本模式', '开启后直接输出文本，关闭后渲染为图片'),
   radio('douyin.videoQuality', '视频画质偏好', videoQualityOptions),
   num('douyin.maxAutoVideoSize', '自动画质最大视频大小', 0, 9999, 'MB'),
+  sw('douyin.volumePriority', '体积优先', '设置具体画质档位时，若该档位体积超过体积上限则自动下调到能发出的档位'),
   radio('douyin.loginPerm', '扫码登录权限', permissionOptions),
   radio('douyin.videoInfoMode', '视频信息返回形式', [
     option('文本', 'text'),
@@ -374,6 +376,7 @@ const schemas = [
   sw('bilibili.videopriority', '优先保内容', '开启后优先保证上传成功，可能降低分辨率'),
   radio('bilibili.videoQuality', '视频画质偏好', bilibiliQualityOptions),
   num('bilibili.maxAutoVideoSize', '自动画质最大视频大小', 0, 9999, 'MB'),
+  sw('bilibili.volumePriority', '体积优先', '设置具体画质档位时，若该档位体积超过体积上限则自动下调到能发出的档位'),
   num('bilibili.bilibilinumcomments', '评论解析数量（旧版键）', 0, 9999, '条'),
   num('bilibili.numcomment', '评论解析数量', 0, 9999, '条'),
   sw('bilibili.realCommentCount', '显示真实评论数量'),
@@ -424,8 +427,15 @@ const schemas = [
   num('xiaohongshu.numcomment', '评论解析数量', 0, 9999, '条'),
   radio('xiaohongshu.videoQuality', '视频画质偏好', xiaohongshuQualityOptions),
   num('xiaohongshu.maxAutoVideoSize', '自动画质最大视频大小', 0, 9999, 'MB'),
+  sw('xiaohongshu.volumePriority', '体积优先', '设置具体画质档位时，若该档位体积超过体积上限则自动下调到能发出的档位'),
 
   group('上传配置'),
+  group('配额限制'),
+  sw('upload.quota.enable', '启用每日流量配额', '开启后按每日限额控制上传/下载流量，超限仅解析信息图，不再下载/发送视频'),
+  num('upload.quota.downloadLimit', '每日下载配额', 0, 114514, 'MB', '每天最多下载的视频总流量，超限后不再下载视频，仅出信息图；0 表示不限制'),
+  num('upload.quota.uploadLimit', '每日上传配额', 0, 114514, 'MB', '每天最多上传的视频总流量，超限后不再发送视频，仅出信息图；0 表示不限制'),
+  radio('upload.quota.forcePermission', '超额强制解析权限', permissionOptions, '配额超限后，拥有该权限的人仍可正常下载/发送视频；设为「主人」时信息图不显示强制提示，设为其他等级时会在信息图提示「继续下载指令：xk解析」'),
+  sw('upload.quota.masterExempt', '主人不计入配额', '主人(机器人主人)超限时始终可正常解析下载；开启后主人的流量不参与配额统计，关闭则主人的流量计入统计但主人仍不被拦截'),
   divider('上传与下载'),
   sw('upload.sendbase64', '转换 base64 发送', '适合云崽与机器人不在同一网络环境时开启'),
   radio('upload.videoSendMode', '本地视频发送方式', [
@@ -474,7 +484,21 @@ const schemas = [
   tags('app.arbitrationDetectEmojis', '检测的其他表情', '消息已存在这些表情时视为被其他机器人抢占，将跳过解析；小表情ID或Unicode码点均可'),
   divider('并发解析'),
   num('douyin.parseConcurrency', '平台解析并发数', 1, 10, '', '全平台生效：控制抖音/B站/快手/小红书 群聊解析时，同时进行的平台API解析请求总数（各平台共享同一队列，合计不超过此值）。调高可加速多群连续解析，但可能触发平台限流；调低更稳。注意：抖音定时推送不受此限制'),
-  num('upload.downloadConcurrency', '视频下载分片数', 2, 8, '路', '全平台生效：控制抖音/B站/快手/小红书 视频下载时的分片并发路数。仅对支持 Range 请求的大文件生效，不支持时自动回退单线程。建议保持默认 4 路，过高可能触发服务器限流')
+  num('upload.downloadConcurrency', '视频下载分片数', 2, 8, '路', '全平台生效：控制抖音/B站/快手/小红书 视频下载时的分片并发路数。仅对支持 Range 请求的大文件生效，不支持时自动回退单线程。建议保持默认 4 路，过高可能触发服务器限流'),
+  divider('惰解析'),
+  sw('advanced.manualParseEnabled', '启用惰解析', '开启后，列表中的群只有带解析指令（如 #解析 / #xk解析）的消息才会被解析，裸链接/纯图片不再自动解析'),
+  {
+    field: 'advanced.manualParseGroups',
+    label: '惰解析群列表',
+    bottomHelpMessage: '手动填写群号（支持任意平台），输入后回车/逗号添加，可拖拽删改；这些群的链接/图片需带指令才解析',
+    component: 'GTags',
+    required: false,
+    componentProps: {
+      allowAdd: true,
+      allowDel: true,
+      placeholder: '输入群号后回车添加'
+    }
+  }
 ]
 
 export function supportGuoba() {
@@ -503,7 +527,8 @@ export function supportGuoba() {
           kuaishou: Config.kuaishou,
           xiaohongshu: Config.xiaohongshu,
           upload: Config.upload,
-          request: Config.request
+          request: Config.request,
+          advanced: Config.advanced
         }
       },
       async setConfigData(data, { Result }) {

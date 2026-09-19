@@ -68,7 +68,7 @@ const scheduleImageDelete = (filePath) => {
     Common.removeFile(filePath, true).catch(error => {
       logger.debug(`[ImageHelper] 删除临时图片失败: ${error?.message || error}`)
     })
-  }, 10 * 60 * 1000)
+  }, (Config.app.cacheRetentionMinutes || 10) * 60 * 1000)
 }
 
 export const processImageUrl = async (imageUrl, title, index, headers = {}) => {

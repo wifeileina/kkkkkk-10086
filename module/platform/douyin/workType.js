@@ -8,10 +8,12 @@ export const parseJsonSafely = (text, fallback = {}) => {
 
 export const isDouyinArticle = (aweme) => aweme?.aweme_type === 163 || Boolean(aweme?.article_info)
 
-export const isDouyinVideo = (aweme) => !isDouyinArticle(aweme) && (
+// 带 images 的作品视为图文/合辑（含实况图），不按纯视频处理；
+// 否则 aweme_type=0 的合辑+实况图作品会被误判为视频，跳过动图流程
+export const isDouyinVideo = (aweme) => !isDouyinArticle(aweme) && !(aweme?.images?.length > 0) && (
   aweme?.aweme_type === 0 ||
   aweme?.aweme_type === 55 ||
-  (Boolean(aweme?.video) && !(aweme?.images?.length > 0))
+  Boolean(aweme?.video)
 )
 
 export const isDouyinImage = (aweme) => !isDouyinArticle(aweme) && !isDouyinVideo(aweme) && aweme?.images?.length > 0

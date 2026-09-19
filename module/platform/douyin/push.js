@@ -390,6 +390,7 @@ export class DouYinpush extends Base {
                           staticUrl: item.url_list?.[0] || item.url_list?.[2] || item.url_list?.[1],
                           liveVideoUrl: getDouyinLiveVideoUrl(item),
                           index: imageIndex,
+                          total: (Detail_Data.images || []).length,
                           headers: douyinBaseHeaders,
                           bgmPath: liveimgbgm?.filepath,
                           mergeMode,
@@ -775,7 +776,7 @@ export class DouYinpush extends Base {
 
         // 检查推送状态：如果推送未开启，发送提示消息
         if (Config.douyin.push && Config.douyin.push.switch === false) {
-          await this.e.reply('请发送「#kkk设置抖音推送开启」以进行推送')
+          await this.e.reply('请发送「#设置抖音推送开启」以进行推送')
         }
       }
     } else {
@@ -797,7 +798,7 @@ export class DouYinpush extends Base {
 
       // 检查推送状态：如果推送未开启，发送提示消息
       if (Config.douyin.push && Config.douyin.push.switch === false) {
-        await this.e.reply('请发送「#kkk设置抖音推送开启」以进行推送')
+        await this.e.reply('请发送「#设置抖音推送开启」以进行推送')
       }
     }
 

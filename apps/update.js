@@ -9,7 +9,7 @@ export class kkkUpdate extends plugin {
       priority: 1000,
       rule: [
         {
-          reg: /^#kkk(插件)?(强制)?更新(日志)?$/,
+          reg: /^#?xk解析(强制)?更新(日志)?$/,
           fnc: 'update'
         }
       ]
@@ -22,7 +22,7 @@ export class kkkUpdate extends plugin {
     if (msg.includes('强制') && msg.includes('日志')) {
       msg = msg.replace('强制', '')
     }
-    msg = msg.replace(/kkk(插件)?/, '')
+    msg = msg.replace(/^#?xk解析/, '')
     msg += Version.pluginName
     e.msg = msg
     const up = new update(e)

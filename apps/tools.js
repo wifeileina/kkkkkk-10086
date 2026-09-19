@@ -81,7 +81,7 @@ export class kkkTools extends plugin {
         ...generateRules(), // 动态生成的平台规则
         ...(isVideoToolEnabled() ? [{ reg: /^(\[图片\])?$/, fnc: 'imageQrCode' }] : []),
         { reg: /^#?\d{1,2}$/, fnc: 'selectDouyinWork' },
-        { reg: /^#?(解析|kkk解析|弹幕解析)/, fnc: 'prefix' }, // 解析功能规则
+        { reg: /^#?(?:解析|xk解析|弹幕解析|xk弹幕解析)(?!帮助|版本|更新|删除缓存|统计|设置)/, fnc: 'prefix' }, // 解析功能规则（排除帮助/版本/更新/删除缓存/统计等指令，避免吞掉其他功能）
         { reg: /#?BGM(\d+)/, fnc: 'uploadRecord' }, // BGM上传功能规则
         { reg: /^#?第(\d{1,3})集$/, fnc: 'next' } // 选集功能规则
       ]
@@ -93,11 +93,33 @@ export class kkkTools extends plugin {
    * @param {any} e 事件对象
    * @returns {Promise<boolean>} 处理结果
    */
+  /**
+   * 惰解析群：列表中的群必须带解析指令才解析，裸链接/纯图片不自动解析
+   * @param {any} e 事件对象
+   * @param {string} name 平台名称（仅用于日志）
+   * @returns {boolean} true 表示应拦截（跳过解析）
+   */
+  _shouldManualParseBlock(e, name) {
+    // 显式带了解析指令（经由 prefix 指令入口进入）则放行
+    if (e._xkCommandParse) return false
+    const advanced = Config.advanced || {}
+    if (!advanced.manualParseEnabled) return false
+    const groups = (advanced.manualParseGroups || []).map(g => String(g))
+    if (!groups.includes(getEventGroupId(e))) return false
+    // 消息本身已含解析指令时也放行（如“xk解析 链接”被平台规则先命中）
+    if (/^#?(?:解析|xk解析|弹幕解析|xk弹幕解析)/.test(e.msg || '')) return false
+    logger.info(`[惰解析群] 群${getEventGroupId(e)}在惰解析列表，需带指令才解析，跳过${name}自动解析`)
+    return true
+  }
+
   async prefix(e) {
     const originalMsg = e.msg || ''
+    // 命中本规则即代表用户显式使用了解析指令，标记为指令解析
+    e._xkCommandParse = true
     e.msg = await Common.getReplyMessage(e)
+    logger.info(`[解析][DEBUG] prefix后 e.msg=${JSON.stringify(String(e.msg || '')).slice(0, 180)}`)
 
-    if (/^#?弹幕解析/.test(originalMsg)) {
+    if (/^#?(弹幕解析|xk弹幕解析)/.test(originalMsg)) {
       e.msg = `#弹幕解析 ${e.msg}`
     }
 
@@ -117,9 +139,8 @@ export class kkkTools extends plugin {
       return true
     }
 
-    // 查找匹配的平台并直接调用处理函数
-    await this.dispatchPlatform(e)
-    return true
+    // 查找匹配的平台并直接调用处理函数；无平台匹配时返回 false，不吞掉消息，让其他指令继续处理
+    return await this.dispatchPlatform(e)
   }
 
   /**
@@ -141,7 +162,11 @@ export class kkkTools extends plugin {
    */
   async dispatchPlatform(e) {
     const config = findPlatformConfig(e.msg)
-    if (!config) return false
+    if (!config) {
+      logger.info(`[解析][DEBUG] 未匹配平台链接: msg=${JSON.stringify(String(e.msg || '')).slice(0, 180)}`)
+      return false
+    }
+    logger.info(`[解析][DEBUG] 命中平台: ${config.handler}`)
 
     const shouldParse = await arbitrationShouldParse(e)
     if (!shouldParse) {
@@ -172,11 +197,12 @@ export class kkkTools extends plugin {
    */
   async douyin(e) {
     if (this._isPrivateParseBlocked(e, '抖音')) return true
+    if (this._shouldManualParseBlock(e, '抖音')) return true
     return await this.runWithErrorHandler(e, '抖音视频解析', this._douyin)
   }
 
   async _douyin(e) {
-    const forceBurnDanmaku = /^#?弹幕解析/.test(e.msg)
+    const forceBurnDanmaku = /^#?(弹幕解析|xk弹幕解析)/.test(e.msg)
     const urlMatch = e.msg.match(/https?:\/\/(?:www\.|v\.|jx\.|m\.|jingxuan\.)?(douyin\.com|iesdouyin\.com)\/[^\s]+/g)
     if (urlMatch && urlMatch[0]) {
       const result = await douyinParseQueue.run(async () => {
@@ -238,11 +264,12 @@ export class kkkTools extends plugin {
    */
   async bilibili(e) {
     if (this._isPrivateParseBlocked(e, 'B站')) return true
+    if (this._shouldManualParseBlock(e, 'B站')) return true
     return await this.runWithErrorHandler(e, 'B站视频解析', this._bilibili)
   }
 
   async _bilibili(e) {
-    const forceBurnDanmaku = /^#?弹幕解析/.test(e.msg)
+    const forceBurnDanmaku = /^#?(弹幕解析|xk弹幕解析)/.test(e.msg)
     let url = (e.msg || (e.message?.[0]?.data || '')).replaceAll('\\', '').trim()
 
     // 处理不同类型的B站链接
@@ -278,6 +305,7 @@ export class kkkTools extends plugin {
    */
   async kuaishou(e) {
     if (this._isPrivateParseBlocked(e, '快手')) return true
+    if (this._shouldManualParseBlock(e, '快手')) return true
     return await this.runWithErrorHandler(e, '快手视频解析', this._kuaishou)
   }
 
@@ -299,6 +327,7 @@ export class kkkTools extends plugin {
    */
   async xiaohongshu(e) {
     if (this._isPrivateParseBlocked(e, '小红书')) return true
+    if (this._shouldManualParseBlock(e, '小红书')) return true
     return await this.runWithErrorHandler(e, '小红书笔记解析', this._xiaohongshu)
   }
 

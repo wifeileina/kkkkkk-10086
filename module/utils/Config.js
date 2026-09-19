@@ -37,6 +37,7 @@ const APP_UPLOAD_KEYS = [
  * @property {boolean} [AppConfig.videotool] 视频解析工具总开关，修改后重启生效
  * @property {boolean} [AppConfig.defaulttool] 默认解析，即识别最高优先级，修改后重启生效
  * @property {boolean} [AppConfig.removeCache] 缓存删除，非必要不修改！
+ * @property {number} [AppConfig.cacheRetentionMinutes] 缓存保存时间（分钟），开启“删除视频缓存”后生效
  * @property {number} [AppConfig.priority] 自定义优先级，「默认解析」关闭后才会生效。修改后重启生效
  * @property {boolean} [AppConfig.sendforwardmsg] 发送合并转发消息，可能多用于抖音解析
  * @property {number} [AppConfig.Theme] 评论图、推送图是否使用深色主题 0为根据时间自动切换 1为浅色 2为深色
@@ -80,6 +81,7 @@ const APP_UPLOAD_KEYS = [
  * @property {boolean} [DouyinConfig.autoResolution] 根据「视频拦截阈值」自动选择合适的分辨率
  * @property {'540p'|'720p'|'1080p'|'2k'|'4k'|'adapt'} [DouyinConfig.videoQuality] 视频画质偏好
  * @property {number} [DouyinConfig.maxAutoVideoSize] 自动画质最大大小
+ * @property {boolean} [DouyinConfig.volumePriority] 体积优先：具体档位超限时自动下调档位
  * @property {'text'|'image'} [DouyinConfig.videoInfoMode] 视频信息返回形式
  * @property {('cover'|'title'|'author'|'stats')[]} [DouyinConfig.displayContent] 视频信息显示内容
  * @property {boolean} [DouyinConfig.burnDanmaku] 是否烧录弹幕
@@ -109,6 +111,7 @@ const APP_UPLOAD_KEYS = [
  * @property {boolean} [BilibiliConfig.videopriority] 解析视频是否优先保内容
  * @property {number} [BilibiliConfig.videoQuality] 视频画质偏好设置
  * @property {number} [BilibiliConfig.maxAutoVideoSize] 自动画质模式下可接受的最大视频大小
+ * @property {boolean} [BilibiliConfig.volumePriority] 体积优先：具体档位超限时自动下调档位
  * @property {'text'|'image'} [BilibiliConfig.videoInfoMode] 视频信息返回形式
  * @property {string[]} [BilibiliConfig.displayContent] 视频解析时简介显示的内容
  * @property {boolean} [BilibiliConfig.showDanmakuInVideoInfo] 视频信息图片是否展示高频弹幕
@@ -161,6 +164,7 @@ const APP_UPLOAD_KEYS = [
  * @property {number} [XiaohongshuConfig.numcomment] 小红书评论数量
  * @property {'540p'|'720p'|'1080p'|'2k'|'4k'|'adapt'|'hdr'} [XiaohongshuConfig.videoQuality] 视频画质偏好
  * @property {number} [XiaohongshuConfig.maxAutoVideoSize] 自动画质最大大小
+ * @property {boolean} [XiaohongshuConfig.volumePriority] 体积优先：具体档位超限时自动下调档位
  */
 
 /**

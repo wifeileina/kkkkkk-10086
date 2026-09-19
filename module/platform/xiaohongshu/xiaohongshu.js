@@ -5,6 +5,7 @@ import { Render } from '../../utils/Render.js'
 import Config from '../../utils/Config.js'
 import Common from '../../utils/Common.js'
 import { processImageUrl } from '../../utils/ImageHelper.js'
+import { getQuotaInfo } from '../../utils/quota.js'
 import { makeForwardMsgBatched } from '../../utils/ForwardMsg.js'
 import { buildLivePhotoMessages, buildLivePhotoTipMessage, pickXiaohongshuImageUrl } from './livePhoto.js'
 import { buildXiaohongshuEmojiList, buildXiaohongshuText } from './comments.js'
@@ -57,6 +58,15 @@ const getVideoUrl = (card, stream) =>
   card?.video?.rawUrl ||
   ''
 
+// 小红书体积上限（适配模式）状态：记录是否所有清晰度均超限、限制值与用于展示的超限体积
+let xhsSizeExceeded = false
+let xhsSizeLimitMb = 0
+let xhsExceedBytes = 0
+// 体积优先：具体档位体积超限时已自动下调档位
+let xhsVolumeAdjusted = false
+// 设定档位的体积（MB），供信息图显示“实际解析体积 设定档位体积/限制体积”
+let xhsSetSizeMb = 0
+
 const selectVideoStream = (streamData) => {
   // 无 size 字段时按编解码优先级顺序保留原始顺序，避免已按码流大小降序排序
   let streams = collectVideoStreams(streamData)
@@ -78,7 +88,16 @@ const selectVideoStream = (streamData) => {
   }
 
   if (quality === 'adapt') {
-    const limit = (Config.xiaohongshu.maxAutoVideoSize || 50) * 1024 * 1024
+    xhsSizeLimitMb = Config.xiaohongshu.maxAutoVideoSize || 50
+    const limit = xhsSizeLimitMb * 1024 * 1024
+    const sized = streams.filter(s => s.size != null)
+    xhsSizeExceeded = sized.length > 0 && sized.every(s => s.size > limit)
+    if (xhsSizeExceeded) {
+      // 所有清晰度均超过体积上限：取最小清晰度体积用于信息图标红，并返回 null 由调用方拦截
+      xhsExceedBytes = sized.reduce((a, b) => ((a.size || 0) < (b.size || 0) ? a : b)).size || 0
+      return null
+    }
+    xhsExceedBytes = 0
     return streams.find(stream => (stream.size || 0) <= limit) || streams.at(-1)
   }
 
@@ -90,6 +109,28 @@ const selectVideoStream = (streamData) => {
   for (const item of fallbackOrder) {
     const stream = streams.find(stream => getQualityLevel(stream) === item)
     if (stream) return stream
+  }
+
+  // 体积优先：设置具体档位时，若该档位体积超过 maxAutoVideoSize 则自动下调到能发出的档位
+  if (Config.xiaohongshu.volumePriority && quality !== 'hdr') {
+    xhsSizeLimitMb = Config.xiaohongshu.maxAutoVideoSize || 50
+    const vpLimit = xhsSizeLimitMb * 1024 * 1024
+    const sized = streams.filter(s => s.size != null)
+    if (sized.length) {
+      const chosen = streams.find(stream => getQualityLevel(stream) === quality) || streams[0]
+      const chosenBytes = chosen?.size || 0
+      if (chosenBytes > vpLimit) {
+        const fit = sized.filter(s => (s.size || 0) <= vpLimit)
+        const pick = fit.length
+          ? fit.reduce((a, b) => ((b.size || 0) > (a.size || 0) ? b : a))
+          : sized.reduce((a, b) => ((b.size || 0) < (a.size || 0) ? b : a))
+        xhsVolumeAdjusted = true
+        xhsSetSizeMb = chosenBytes / (1024 * 1024)
+        xhsSizeExceeded = false
+        xhsExceedBytes = 0
+        return pick
+      }
+    }
   }
 
   return streams[0]
@@ -221,15 +262,25 @@ export class Xiaohongshu extends Base {
       const image_url = pickXiaohongshuImageUrl(card.image_list?.[0]) || card.video?.image?.url_default || card.video?.cover?.url_default || ''
       // 视频笔记附带分辨率/编码/HDR：全部取自上屏码流
       let video = null
+      let currentVideoBytes = 0
+      xhsVolumeAdjusted = false
+      xhsSetSizeMb = 0
       if (card?.video) {
         const stream = selectVideoStream(card.video.media?.stream)
+        currentVideoBytes = stream?.size || 0
         const codecMap = { EF5: 'H.265', EF4: 'H.264', EF6: 'H.266', EF7: 'AV1' }
         const rawCodec = stream?.video_codec || ''
+        const dispSizeBytes = stream?.size || (xhsSizeExceeded ? xhsExceedBytes : 0)
         video = {
           width: stream?.width || 0,
           height: stream?.height || 0,
           encoding: rawCodec ? (codecMap[rawCodec] || rawCodec) : '',
-          hdr: stream?.hdr_type || 0
+          hdr: stream?.hdr_type || 0,
+          size: dispSizeBytes ? (dispSizeBytes / 1048576).toFixed(2) : '',
+          sizeExceeded: xhsSizeExceeded,
+          sizeLimit: xhsSizeLimitMb,
+          sizeSet: xhsSetSizeMb ? xhsSetSizeMb.toFixed(2) : '',
+          volumeAdjusted: xhsVolumeAdjusted
         }
       }
       const noteInfoImg = await Render('xiaohongshu/noteInfo', {
@@ -247,7 +298,8 @@ export class Xiaohongshu extends Base {
         time: formatTime(card.time),
         ip_location: card.ip_location || '',
         share_url: buildShareUrl(data),
-        video
+        video,
+        quotaInfo: getQuotaInfo(this.e, currentVideoBytes)
       })
       await this.e.reply(noteInfoImg)
     }
@@ -313,6 +365,10 @@ export class Xiaohongshu extends Base {
 
     if (card.video && sendContent.includes('video')) {
       const stream = selectVideoStream(card.video.media?.stream)
+      if (xhsSizeExceeded) {
+        await this.e.reply(`解析到的视频所有清晰度均超过 ${xhsSizeLimitMb}MB，已停止下载\n当前体积上限：${xhsSizeLimitMb}MB`, { reply: true })
+        return true
+      }
       const videoUrl = getVideoUrl(card, stream)
       if (!videoUrl) {
         await this.e.reply('未找到可用的视频地址')

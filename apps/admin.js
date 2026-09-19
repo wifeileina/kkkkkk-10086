@@ -1,4 +1,5 @@
 import { Config, Render, Version, Common } from '../module/utils/index.js'
+import { resetQuota } from '../module/utils/quota.js'
 import { bilibiliLogin } from '../module/platform/bilibili/login.js'
 import { dylogin } from '../module/platform/douyin/login.js'
 import { xiaohongshuLogin } from '../module/platform/xiaohongshu/login.js'
@@ -126,8 +127,8 @@ const FileWitch = {
 
 // 转义正则特殊字符
 const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const SwitchCfgReg = new RegExp(`^#kkk设置(${Object.keys(SwitchCfgType).map(escapeRegex).join('|')})\\s*(开启|关闭)$`, 'i')
-const NumberCfgReg = new RegExp(`^#kkk设置(${Object.keys(NumberCfgType).map(escapeRegex).join('|')})\\s*(\\d+)$`, 'i')
+const SwitchCfgReg = new RegExp(`^#?xk设置(${Object.keys(SwitchCfgType).map(escapeRegex).join('|')})\\s*(开启|关闭)$`, 'i')
+const NumberCfgReg = new RegExp(`^#?xk设置(${Object.keys(NumberCfgType).map(escapeRegex).join('|')})\\s*(\\d+)$`, 'i')
 
 export class kkkAdmin extends plugin {
   constructor() {
@@ -147,48 +148,53 @@ export class kkkAdmin extends plugin {
           permission: 'master'
         },
         {
-          reg: /^#kkk设置$/,
+          reg: /^(?:xk解析设置|#xk解析设置|#解析设置)$/,
           fnc: 'index_Settings',
           permission: 'master'
         },
         {
-          reg: /^#?(kkk)?\s*设置抖音ck$/i,
+          reg: /^#?(?:xk)?\s*设置抖音ck$/i,
           fnc: 'setdyck',
           permission: 'master'
         },
         {
-          reg: /^#?(kkk)?\s*设置\s*([Bb]站)ck$/i,
+          reg: /^#?(?:xk)?\s*设置\s*([Bb]站)ck$/i,
           fnc: 'setbilick',
           permission: 'master'
         },
         {
-          reg: /^#?(kkk)?\s*设置快手ck$/i,
+          reg: /^#?(?:xk)?\s*设置快手ck$/i,
           fnc: 'setksck',
           permission: 'master'
         },
         {
-          reg: /^#?(kkk)?\s*设置小红书ck$/i,
+          reg: /^#?(?:xk)?\s*设置小红书ck$/i,
           fnc: 'setxhsck',
           permission: 'master'
         },
         {
-          reg: /^#?(kkk)?\s*[Bb]站\s*(扫码)?\s*登录$/i,
+          reg: /^#?(?:xk)?\s*[Bb]站\s*(扫码)?\s*登录$/i,
           fnc: 'Blogin',
           permission: 'master'
         },
         {
-          reg: /^#?(kkk)?\s*抖音(扫码)?\s*登录$/i,
+          reg: /^#?(?:xk)?\s*抖音(扫码)?\s*登录$/i,
           fnc: 'dylogin',
           permission: 'master'
         },
         {
-          reg: /^#?(kkk)?\s*小红书(扫码)?\s*登录$/i,
+          reg: /^#?(?:xk)?\s*小红书(扫码)?\s*登录$/i,
           fnc: 'xhslogin',
           permission: 'master'
         },
         {
-          reg: /^#?kkk删除缓存$/,
+          reg: /^#?xk解析删除缓存$/,
           fnc: 'deltemp',
+          permission: 'master'
+        },
+        {
+          reg: /^#?xk重置配额$/,
+          fnc: 'resetQuota',
           permission: 'master'
         }
       ]
@@ -210,6 +216,12 @@ export class kkkAdmin extends plugin {
     await removeAllFiles(Common.tempDri.video)
       .then(() => logger.warn(Common.tempDri.video + '所有文件已删除'))
       .catch((err) => logger.error('删除文件时出错:', err))
+    return true
+  }
+
+  async resetQuota(e) {
+    const cleared = resetQuota()
+    await e.reply(`已重置今日配额统计（下载 ${(cleared.download / 1048576).toFixed(1)}MB / 上传 ${(cleared.upload / 1048576).toFixed(1)}MB）`)
     return true
   }
 

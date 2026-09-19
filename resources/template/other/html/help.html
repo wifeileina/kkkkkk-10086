@@ -1,25 +1,407 @@
-{{extend defaultLayout}}
-{{block 'css'}}
-<link rel="stylesheet" type="text/css" href="{{_res_path}}template/other/css/help.css" />
-{{/block}}
-{{block 'main'}}
-<div class="help-header">
-  <div class="help-header-badge">{{role === 'master' ? 'MASTER' : 'MEMBER'}}</div>
-  <h1>{{title || 'KKK插件帮助页面'}}</h1>
-  <div class="help-header-sub">在聊天中发送下列指令即可使用 ~</div>
-</div>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小卡解析帮助</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%234f8ef7'/%3E%3Ctext x='12' y='16.5' font-size='11' font-family='monospace' fill='white' text-anchor='middle' font-weight='bold'&gt;xk%3C/text%3E%3C/svg%3E">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
 
-{{each menu group}}
-<section class="menu-section">
-  <h2><span class="section-dot"></span>{{group.title}}</h2>
-  <div class="menu-grid">
-    {{each group.items item}}
-    <div class="menu-item">
-      <div class="menu-title">{{item.title}}</div>
-      <div class="menu-description">{{item.description}}</div>
+  :root {
+    --h-bg: linear-gradient(165deg, #eaf3ff 0%, #d8e8ff 55%, #d6e6ff 100%);
+    --h-color: #1f2a3d;
+    --h-card-bg: rgba(255, 255, 255, 0.66);
+    --h-card-border: rgba(255, 255, 255, 0.7);
+    --h-card-shadow: 0 18px 50px rgba(37, 99, 180, 0.2);
+    --h-blob-1: rgba(147, 197, 253, 0.6);
+    --h-blob-2: rgba(196, 181, 253, 0.5);
+    --h-blob-3: rgba(167, 243, 208, 0.55);
+    --h-blob-4: rgba(254, 205, 211, 0.5);
+    --h-blob-5: rgba(253, 224, 171, 0.45);
+    --h-mast-color: #4f8ef7;
+    --h-mast-bg: #eff6ff;
+    --h-mast-border: #c7ddfb;
+    --h-h1: #17233b;
+    --h-sub: #5b6b84;
+    --h-g-green: #166534;
+    --h-dot-green: #22c55e; --h-shadow-green: rgba(34,197,94,.18);
+    --h-g-orange: #9a5b06;
+    --h-dot-orange: #f59e0b; --h-shadow-orange: rgba(245,158,11,.18);
+    --h-g-blue: #1e40af;
+    --h-dot-blue: #3b82f6; --h-shadow-blue: rgba(59,130,246,.18);
+    --h-g-purple: #6d28d9;
+    --h-dot-purple: #8b5cf6; --h-shadow-purple: rgba(139,92,246,.18);
+    --h-rows-border: rgba(255, 255, 255, 0.75);
+    --h-rows-bg: rgba(255, 255, 255, 0.42);
+    --h-row-border: rgba(226, 234, 245, 0.7);
+    --h-cmd: #1e293b;
+    --h-code-bg: #f1f5fb;
+    --h-code-border: #e3ebf6;
+    --h-code-color: #1d4ed8;
+    --h-desc: #8494ab;
+    --h-tip-bg: #eff6ff;
+    --h-tip-border: #c7ddfb;
+    --h-tip-color: #1e40af;
+  }
+
+  body.dark-mode {
+    --h-bg: linear-gradient(165deg, #0b1020 0%, #121a30 55%, #0e1428 100%);
+    --h-color: #dce4f2;
+    --h-card-bg: rgba(22, 27, 48, 0.55);
+    --h-card-border: rgba(255, 255, 255, 0.1);
+    --h-card-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+    --h-blob-1: rgba(59, 130, 246, 0.35);
+    --h-blob-2: rgba(139, 92, 246, 0.35);
+    --h-blob-3: rgba(16, 185, 129, 0.24);
+    --h-blob-4: rgba(236, 72, 153, 0.24);
+    --h-blob-5: rgba(245, 158, 11, 0.2);
+    --h-mast-color: #7cb0fc;
+    --h-mast-bg: rgba(59, 130, 246, 0.14);
+    --h-mast-border: rgba(96, 165, 250, 0.28);
+    --h-h1: #eef2fa;
+    --h-sub: #8fa0ba;
+    --h-g-green: #4ade80;
+    --h-dot-green: #4ade80; --h-shadow-green: rgba(74, 222, 128, 0.2);
+    --h-g-orange: #fbbf24;
+    --h-dot-orange: #fbbf24; --h-shadow-orange: rgba(251, 191, 36, 0.2);
+    --h-g-blue: #60a5fa;
+    --h-dot-blue: #60a5fa; --h-shadow-blue: rgba(96, 165, 250, 0.2);
+    --h-g-purple: #a78bfa;
+    --h-dot-purple: #a78bfa; --h-shadow-purple: rgba(167, 139, 250, 0.2);
+    --h-rows-border: rgba(255, 255, 255, 0.1);
+    --h-rows-bg: rgba(255, 255, 255, 0.045);
+    --h-row-border: rgba(255, 255, 255, 0.07);
+    --h-cmd: #e6ebf5;
+    --h-code-bg: rgba(59, 130, 246, 0.15);
+    --h-code-border: rgba(96, 165, 250, 0.28);
+    --h-code-color: #93c5fd;
+    --h-desc: #8b98ad;
+    --h-tip-bg: rgba(59, 130, 246, 0.12);
+    --h-tip-border: rgba(96, 165, 250, 0.28);
+    --h-tip-color: #93c5fd;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    background: var(--h-bg);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 48px 20px;
+    color: var(--h-color);
+    -webkit-font-smoothing: antialiased;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* ===== 朦胧彩色光斑 ===== */
+  .blob {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(110px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .blob-1 { width: 520px; height: 520px; background: var(--h-blob-1); top: -140px; left: -120px; }
+  .blob-2 { width: 560px; height: 560px; background: var(--h-blob-2); top: 18%; right: -180px; }
+  .blob-3 { width: 500px; height: 500px; background: var(--h-blob-3); bottom: -160px; left: 22%; }
+  .blob-4 { width: 420px; height: 420px; background: var(--h-blob-4); bottom: 6%; right: 6%; }
+  .blob-5 { width: 380px; height: 380px; background: var(--h-blob-5); top: 45%; left: -120px; }
+
+  .card {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 920px;
+    background: var(--h-card-bg);
+    backdrop-filter: blur(24px) saturate(160%);
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    border: 1px solid var(--h-card-border);
+    border-radius: 20px;
+    box-shadow: var(--h-card-shadow);
+    padding: 38px 44px 34px;
+  }
+
+  /* ===== 标题区 ===== */
+  .mast {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--h-mast-color);
+    background: var(--h-mast-bg);
+    border: 1px solid var(--h-mast-border);
+    border-radius: 999px;
+    padding: 3px 12px;
+  }
+
+  .header h1 {
+    margin-top: 12px;
+    font-size: 27px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--h-h1);
+  }
+
+  .header .sub {
+    margin-top: 8px;
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--h-sub);
+  }
+
+  /* ===== 分组 ===== */
+  .group { margin-top: 28px; }
+
+  .group-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .g-green .group-head { color: var(--h-g-green); }
+  .g-green .dot { background: var(--h-dot-green); box-shadow: 0 0 0 3px var(--h-shadow-green); }
+  .g-orange .group-head { color: var(--h-g-orange); }
+  .g-orange .dot { background: var(--h-dot-orange); box-shadow: 0 0 0 3px var(--h-shadow-orange); }
+  .g-blue .group-head { color: var(--h-g-blue); }
+  .g-blue .dot { background: var(--h-dot-blue); box-shadow: 0 0 0 3px var(--h-shadow-blue); }
+  .g-purple .group-head { color: var(--h-g-purple); }
+  .g-purple .dot { background: var(--h-dot-purple); box-shadow: 0 0 0 3px var(--h-shadow-purple); }
+
+  /* ===== 命令行 ===== */
+  .rows {
+    border: 1px solid var(--h-rows-border);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--h-rows-bg);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .row2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .row2 + .row2 { border-top: 1px solid var(--h-row-border); }
+  .row2 > .cmd:first-child { border-right: 1px solid var(--h-row-border); }
+
+  .cmd {
+    padding: 14px 18px;
+  }
+
+  .cmd-name {
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--h-cmd);
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .cmd-name code {
+    font-family: "SF Mono", "JetBrains Mono", Consolas, Menlo, monospace;
+    font-size: 12.5px;
+    font-weight: 600;
+    background: var(--h-code-bg);
+    border: 1px solid var(--h-code-border);
+    border-radius: 6px;
+    padding: 2px 8px;
+    color: var(--h-code-color);
+    white-space: nowrap;
+  }
+
+  .cmd-desc {
+    margin-top: 5px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--h-desc);
+  }
+
+  /* ===== 底部提示 ===== */
+  .tip {
+    margin-top: 26px;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    background: var(--h-tip-bg);
+    border: 1px solid var(--h-tip-border);
+    border-radius: 12px;
+    padding: 13px 16px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--h-tip-color);
+  }
+  .tip .label { flex-shrink: 0; font-weight: 700; }
+
+  /* ===== 响应式 ===== */
+  @media (max-width: 760px) {
+    body { padding: 20px 12px; }
+    .card { padding: 24px 18px 22px; border-radius: 16px; }
+    .header h1 { font-size: 22px; }
+    .row2 { grid-template-columns: 1fr; }
+    .row2 > .cmd:first-child { border-right: none; }
+    .row2 > .cmd + .cmd { border-top: 1px solid var(--h-row-border); }
+  }
+</style>
+</head>
+<body class="{{useDarkTheme === 'true' ? 'dark-mode' : ''}}">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+  <div class="blob blob-4"></div>
+  <div class="blob blob-5"></div>
+
+  <main class="card">
+
+    <!-- ===== 标题区 ===== -->
+    <header class="header">
+      <span class="mast">{{role === 'master' ? 'MASTER' : 'MEMBER'}}</span>
+      <h1>{{title || '小卡解析帮助'}}</h1>
+      <p class="sub">在聊天中发送下列指令即可使用~</p>
+    </header>
+
+    <!-- ===== 常用功能 ===== -->
+    <section class="group g-green">
+      <div class="group-head"><span class="dot"></span>常用功能</div>
+      <div class="rows">
+        <div class="row2">
+          <div class="cmd">
+            <div class="cmd-name"><code>自动识别分享链接进行解析</code></div>
+            <div class="cmd-desc">支持「抖音」「哔哩哔哩」「快手」「小红书」</div>
+          </div>
+          <div class="cmd">
+            <div class="cmd-name"><code>#解析</code><code>xk解析</code><code>#弹幕解析</code><code>xk弹幕解析</code></div>
+            <div class="cmd-desc">在解析功能关闭时可对引用消息解析，弹幕解析适用于抖音与哔哩哔哩</div>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="cmd">
+            <div class="cmd-name"><code>xk解析统计</code></div>
+            <div class="cmd-desc">查看当前群组的解析统计数据</div>
+          </div>
+          <div class="cmd">
+            <div class="cmd-name"><code>xk全局解析统计</code></div>
+            <div class="cmd-desc">查看全局解析统计、趋势和群组排行</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 推送相关 ===== -->
+    <section class="group g-orange">
+      <div class="group-head"><span class="dot"></span>推送相关</div>
+      <div class="rows">
+        <div class="row2">
+          <div class="cmd">
+            <div class="cmd-name"><code>#设置抖音推送 + 抖音号</code></div>
+            <div class="cmd-desc">在群聊中订阅或取消订阅抖音博主</div>
+          </div>
+          <div class="cmd">
+            <div class="cmd-name"><code>#设置B站推送 + UP主UID</code></div>
+            <div class="cmd-desc">在群聊中订阅或取消订阅 B 站 UP 主</div>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="cmd">
+            <div class="cmd-name"><code>#抖音/B站推送列表</code></div>
+            <div class="cmd-desc">查看当前群的订阅推送列表</div>
+          </div>
+          <div class="cmd">
+            <div class="cmd-name"><code>#抖音/B站全部?强制推送</code></div>
+            <div class="cmd-desc">手动模拟一次推送任务，已推送过的不会重复推送</div>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="cmd">
+            <div class="cmd-name"><code>#设置抖音推送 开启/关闭</code></div>
+            <div class="cmd-desc">开启或关闭抖音推送任务，重启后生效</div>
+          </div>
+          <div class="cmd">
+            <div class="cmd-name"><code>#设置B站推送 开启/关闭</code></div>
+            <div class="cmd-desc">开启或关闭 B 站推送任务，重启后生效</div>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="cmd">
+            <div class="cmd-name"><code>xk推送全局忽略 + 链接</code></div>
+            <div class="cmd-desc">把指定作品或动态标记为已处理，避免继续推送</div>
+          </div>
+          <div class="cmd"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 设置相关 ===== -->
+    <section class="group g-blue">
+      <div class="group-head"><span class="dot"></span>设置相关</div>
+      <div class="rows">
+        <div class="row2">
+          <div class="cmd">
+            <div class="cmd-name"><code>xk设置推送机器人 + Bot ID</code></div>
+            <div class="cmd-desc">一键更换推送机器人</div>
+          </div>
+          <div class="cmd">
+            <div class="cmd-name"><code>#抖音登录</code></div>
+            <div class="cmd-desc">使用抖音 APP 扫码登录获取 Cookies</div>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="cmd">
+            <div class="cmd-name"><code>#B站登录</code></div>
+            <div class="cmd-desc">使用哔哩哔哩 APP 扫码登录获取 Cookies</div>
+          </div>
+          <div class="cmd">
+            <div class="cmd-name"><code>#小红书登录</code></div>
+            <div class="cmd-desc">使用小红书 APP 扫码登录获取 Cookies</div>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="cmd">
+            <div class="cmd-name"><code>锅巴面板</code></div>
+            <div class="cmd-desc">在锅巴插件管理中配置 <code style="display:inline">kkkkkk-10086</code></div>
+          </div>
+          <div class="cmd">
+            <div class="cmd-name"><code>xk重置配额</code></div>
+            <div class="cmd-desc">重置今日解析流量配额统计</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 其他 ===== -->
+    <section class="group g-purple">
+      <div class="group-head"><span class="dot"></span>其他</div>
+      <div class="rows">
+        <div class="row2">
+          <div class="cmd">
+            <div class="cmd-name"><code>xk解析帮助</code></div>
+            <div class="cmd-desc">查看帮助页面；xk 前缀无需加 #，如 xk解析、xk解析设置</div>
+          </div>
+          <div class="cmd">
+            <div class="cmd-name"><code>xk解析版本</code><code>xk解析更新日志</code><code>xk解析更新</code></div>
+            <div class="cmd-desc">查看版本与更新日志</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 底部提示 ===== -->
+    <div class="tip">
+      <span class="label">提示 ·</span>
+      <span>xk 前缀无需加 #，如 xk解析、xk解析设置；登录类命令需在对应 APP 内扫码完成授权。</span>
     </div>
-    {{/each}}
-  </div>
-</section>
-{{/each}}
-{{/block}}
+
+  </main>
+</body>
+</html>

@@ -11,7 +11,7 @@
  * - stringifyError: https://github.com/KarinJS/Karin/blob/main/packages/core/src/utils/system/error.ts
  * 
  */
-import { exec as execCmd } from 'child_process'
+import { execFile as execFileCmd } from 'child_process'
 import Common from './Common.js'
 
 /**
@@ -181,11 +181,10 @@ const checkFFmpegAvailable = async () => {
  * // 获取视频信息
  * const info = await ffmpeg('-i input.mp4', { log: true });
  */
-export const ffmpeg = async (cmd, options) => {
-  // 移除命令前缀并添加完整路径
-  cmd = cmd.replace(/^ffmpeg/, '').trim()
-  cmd = `${getFFmpegPath()} ${cmd}`
-  return await exec(cmd, options)
+export const ffmpeg = async (args, options) => {
+  // 兼容旧式字符串命令：拆分后再交给 execFile，避免走 shell 二次解析
+  if (typeof args === 'string') args = parseCommandString(args)
+  return await exec([getFFmpegPath(), ...args], options)
 }
 
 /**
@@ -210,11 +209,19 @@ export const ffmpeg = async (cmd, options) => {
  * // 获取视频详细信息
  * const details = await ffprobe('-i input.mp4 -show_format -show_streams', { log: true });
  */
-export const ffprobe = async (cmd, options) => {
-  // 移除命令前缀并添加完整路径
-  cmd = cmd.replace(/^ffprobe/, '').trim()
-  cmd = `${getFFprobePath()} ${cmd}`
-  return await exec(cmd, options)
+export const ffprobe = async (args, options) => {
+  if (typeof args === 'string') args = parseCommandString(args)
+  return await exec([getFFprobePath(), ...args], options)
+}
+
+const parseCommandString = (cmd) => {
+  const args = []
+  const re = /"([^"]*)"|'([^']*)'|(\S+)/g
+  let m
+  while ((m = re.exec(String(cmd ?? '').trim())) !== null) {
+    args.push(m[1] ?? m[2] ?? m[3])
+  }
+  return args
 }
 
 /**
@@ -447,30 +454,30 @@ export const loopVideoWithTransition = async (options) => {
  * // 只检查命令是否成功
  * const success = await exec('npm test', { booleanResult: true });
  */
-const exec = (cmd, options) => {
+const exec = (argv, options) => {
   return new Promise((resolve) => {
     // 打印执行日志（如果启用）
     if (options?.log) {
       logger.info([
         '[exec] 执行命令:',
         `pwd: ${options?.cwd || process.cwd()}`,
-        `cmd: ${cmd}`,
+        `argv: ${JSON.stringify(argv)}`,
         `options: ${JSON.stringify(options)}`
       ].join('\n'))
     }
 
-    // 执行命令
-    execCmd(cmd, options, (error, stdout, stderr) => {
+    const file = argv[0]
+    const args = argv.slice(1)
+
+    // 执行命令（execFile 不经 shell，避免 filter_complex 的方括号被 shell glob 二次解析）
+    execFileCmd(file, args, { ...options, maxBuffer: options?.maxBuffer ?? offscreenMaxBuffer() }, (error, stdout, stderr) => {
       // 打印执行结果日志（如果启用）
       if (options?.log) {
         const info = stringifyError(error || undefined)
-        if (info && typeof info === 'object' && 'message' in info && info.message) {
-          info.message = `\x1b[91m${info.message}\x1b[0m`
-        }
         logger.info([
           '[exec] 执行结果:',
-          `stderr: ${stderr.toString()}`,
-          `stdout: ${stdout.toString()}`,
+          `stderr: ${String(stderr)}`,
+          `stdout: ${String(stdout)}`,
           `error: ${JSON.stringify(info, null, 2)}`
         ].join('\n'))
       }
@@ -481,8 +488,8 @@ const exec = (cmd, options) => {
       }
 
       // 转换输出为字符串
-      stdout = stdout.toString()
-      stderr = stderr.toString()
+      stdout = Buffer.isBuffer(stdout) ? stdout.toString() : stdout || ''
+      stderr = Buffer.isBuffer(stderr) ? stderr.toString() : stderr || ''
 
       // 去除首尾空白（如果需要）
       if (options?.trim) {
@@ -501,6 +508,8 @@ const exec = (cmd, options) => {
     })
   })
 }
+
+const offscreenMaxBuffer = () => 32 * 1024 * 1024
 
 /**
  * @description 将错误对象转换为可序列化的格式
