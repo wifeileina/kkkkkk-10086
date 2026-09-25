@@ -3,6 +3,9 @@ import Config from './module/utils/Config.js'
 import Common from './module/utils/Common.js'
 import Version from './module/utils/Version.js'
 
+// 注入框架消息节流群维度修复（只覆写运行时方法，不改 lib 源文件，bot 更新不会覆盖）
+await import('./module/utils/patchLoader.js')
+
 // 初始化数据库
 const { initAllDatabases } = await import('./module/db/index.js')
 await initAllDatabases()

@@ -14,12 +14,6 @@
     {{else if Type == '图集'}}
     <div class="top-info">图片数量：{{ImageLength}}张</div>
     {{/if}}
-    {{if quotaInfo && quotaInfo.enabled}}
-    <div class="quota-hint">{{@quotaInfo.text}}</div>
-    {{/if}}
-    {{if quotaInfo && quotaInfo.showForceHint}}
-    <div class="quota-hint force-hint">继续下载指令：xk解析  权限:{{quotaInfo.forcePermissionLabel}}</div>
-    {{/if}}
   </div>
   <div class="qrcode_box">
     <div class="qrcode" id="qrcode"></div>

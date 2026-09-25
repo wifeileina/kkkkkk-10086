@@ -8,7 +8,7 @@ const PLATFORM_EMOJI_IDS = {
     EYES: 424,
     PROCESSING: 366,
     SUCCESS: 389,
-    ERROR: 379
+    ERROR: 5 // 流泪/哭泣：解析失败专用标记，与成功表情 389 互斥（实测群消息回应日志中 emoji_id=5 即该表情）
   },
   discord: {
     EYES: '👀',
@@ -20,7 +20,7 @@ const PLATFORM_EMOJI_IDS = {
     EYES: 128064, // 👀
     PROCESSING: 366,
     SUCCESS: 389,
-    ERROR: 379
+    ERROR: 5 // 流泪/哭泣
   }
 }
 
@@ -288,6 +288,29 @@ export const arbitrationShouldParse = async (event) => {
   logger.info('[仲裁] 仲裁流程未确认胜出者，本机跳过解析')
   return false
 }
+
+/**
+ * 解析结果标记：供各平台解析器在返回前打标，由 wrapWithErrorHandler 在流程结束时读取，
+ * 决定把 PROCESSING 换成 SUCCESS(成功) 还是 ERROR(哭泣，失败)。
+ *   markParseFailed  —— 解析失败/出错（作品不存在、接口拿不到数据、不支持的类型等）：不贴成功表情，改贴哭泣
+ *   markParseLimited —— 规则限制导致的停止解析（体积超限、上传大小限制等）：不算失败，保持原成功表情
+ * 注意两者互斥，后调用者生效（避免先标记失败又被规则限制覆盖）。
+ */
+export const markParseFailed = (event, reason) => {
+  if (!event) return
+  event._xkParseFailed = true
+  event._xkParseLimited = false
+  if (reason) event._xkParseFailedReason = reason
+}
+
+export const markParseLimited = (event, reason) => {
+  if (!event) return
+  event._xkParseLimited = true
+  event._xkParseFailed = false
+  if (reason) event._xkParseLimitedReason = reason
+}
+
+export const isParseFailed = event => Boolean(event?._xkParseFailed) && !event?._xkParseLimited
 
 export class EmojiReactionManager {
   constructor (event) {

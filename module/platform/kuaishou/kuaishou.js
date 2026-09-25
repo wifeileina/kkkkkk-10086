@@ -1,4 +1,4 @@
-import { Base, Config, Render, Networks, downloadVideo, getQuotaInfo } from '../../utils/index.js'
+import { Base, Config, Render, Networks, downloadVideo, markParseFailed } from '../../utils/index.js'
 import  comments  from './comments.js'
 
 export default class KuaiShou extends Base {
@@ -13,6 +13,7 @@ export default class KuaiShou extends Base {
     const emojiList = data.EmojiData?.data?.data?.visionBaseEmoticons?.iconUrls || data.EmojiData?.data?.visionBaseEmoticons?.iconUrls || {}
 
     if (videoDetail?.status !== 1) {
+      markParseFailed(this.e, '快手作品状态异常/不支持解析')
       await this.e.reply('不支持解析的视频')
       return true
     }
@@ -35,8 +36,7 @@ export default class KuaiShou extends Base {
         share_url: video_url,
         VideoSize: videoSizeInMB,
         likeCount: videoDetail.photo.likeCount,
-        quotaInfo: getQuotaInfo(this.e, Size)
-      }
+        }
     )
     await this.e.reply(img)
     await downloadVideo(this.e, {

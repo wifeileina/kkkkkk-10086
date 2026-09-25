@@ -1,4 +1,4 @@
-import { Base, Config, UploadRecord, Networks, Render, Common, downloadFile, downloadVideo, uploadFile, baseHeaders, processImageUrl, makeForwardMsg, makeForwardMsgBatched, getQuotaInfo, getRemoteFileSize } from '../../utils/index.js'
+import { Base, Config, UploadRecord, Networks, Render, Common, downloadFile, downloadVideo, uploadFile, baseHeaders, processImageUrl, makeForwardMsg, makeForwardMsgBatched, getRemoteFileSize, markParseFailed, markParseLimited } from '../../utils/index.js'
 import { getCachedData, setCachedData, runSingleFlightData } from '../../utils/ResourceCache.js'
 import { parseDouyinViaSharePage } from './sharePage.js'
 import { fetchDouyinDetailViaBrowser } from './webapi.js'
@@ -35,15 +35,6 @@ import fs from 'fs'
  * @property {number} quality_type - 清晰度类型
  * @property {string} video_extra - 额外视频信息
  */
-
-let mp4size = ''
-let mp4sizeExceeded = false
-let mp4sizeLimit = 0
-let mp4sizeSet = ''
-let volumeAdjusted = false
-// 实际解析到的视频大小（字节）：优先取 bit_rate data_size，缺失时（分享页降级）由远程探测补充
-let parsedDataSize = 0
-let img
 
 const getFirstUrl = (data) => data?.url_list?.find(Boolean) || ''
 const formatVideoDuration = (duration) => {
@@ -135,6 +126,47 @@ const getDouyinHeightRatio = (height) => {
   return '480p'
 }
 
+/** 码流高度 → 展示用的清晰度标签 */
+const getDouyinHeightLabel = (height) => {
+  if (height >= 1900) return '4K'
+  if (height >= 1400) return '2K'
+  if (height >= 1000) return '1080P'
+  if (height >= 700) return '720P'
+  if (height >= 500) return '540P'
+  if (height > 0) return '流畅'
+  return '未知'
+}
+
+/** 从作品详情提取全部清晰度档位列表（排除 dash 流、无体积的无效档） */
+const buildDouyinTierList = (aweme) => {
+  const src = aweme?.video
+  const seen = new Set()
+  const tiers = []
+  for (const [i, it] of (src?.bit_rate || []).entries()) {
+    if (it?.format === 'dash') continue
+    const dataSize = it?.play_addr?.data_size || 0
+    if (!(dataSize > 0)) continue
+    const stream = it?.play_addr
+    const h = stream?.height || 0
+    const w = stream?.width || 0
+    // 相同分辨率且相同体积的重复档（同一清晰度多编码）合并为一条，避免列表重复
+    const dedupKey = `${w}x${h}:${Math.round(dataSize / 1024)}`
+    if (seen.has(dedupKey)) continue
+    seen.add(dedupKey)
+    const gear = String(it?.gear_name || '').trim()
+    tiers.push({
+      index: i, // 原始 bit_rate 下标，用于指定档下载
+      label: gear || getDouyinHeightLabel(h),
+      width: w,
+      height: h,
+      sizeMb: (dataSize / (1024 * 1024)).toFixed(1),
+      hdr: Boolean(it?.hdr_type || it?.play_addr?.hdr_type || it?.HDR_type)
+    })
+  }
+  // 按体积升序展示（小→大），下载仍按 index 定位到原始码流
+  return tiers
+}
+
 export class DouYin extends Base {
   /** @type {import('./getid.js').DouyinDataTypes[keyof import('./getid.js').DouyinDataTypes]} */
   type
@@ -160,6 +192,8 @@ export class DouYin extends Base {
     this.is_mp4 = iddata?.is_mp4
     this.is_slides = false
     this.forceBurnDanmaku = options?.forceBurnDanmaku ?? false
+    this.tierMode = options?.tierMode ?? false
+    this.tierIndex = options?.tierIndex ?? null
     this.hasProcessedLiveImage = false
   }
 
@@ -197,8 +231,20 @@ export class DouYin extends Base {
    */
   async RESOURCES (data) {
     try {
+      // 并发安全：解析状态改为方法局部变量，避免多会话并发解析同一作品时互相串扰
+      let mp4size = ''
+      let mp4sizeExceeded = false
+      let mp4sizeLimit = 0
+      let mp4sizeSet = ''
+      let volumeAdjusted = false
+      let parsedDataSize = 0
+      let img
       if (this.type === 'undefined') return true
-      (Config.app.parseTip || hasDouyinContent('提示信息')) && this.e.reply('检测到抖音链接，开始解析')
+      if (Config.app.parseTip || hasDouyinContent('提示信息')) {
+        try {
+          if (typeof this.e?.reply === 'function') this.e.reply('检测到抖音链接，开始解析')
+        } catch { /* 提示失败不应阻塞解析 */ }
+      }
       switch (this.type) {
         case 'one_work': {
           // 同一作品多群转发时复用平台解析结果，避免重复请求聚合/评论 API（限流与延迟主因）
@@ -233,6 +279,26 @@ export class DouYin extends Base {
           const isArticle = isDouyinArticle(VideoData.data.aweme_detail)
           const isVideo = isDouyinVideo(VideoData.data.aweme_detail)
           if (typeof this.is_mp4 !== 'boolean') this.is_mp4 = isVideo
+
+          // 档位模式：仅解析并列出全部清晰度档位，供 xk解析档位 命令选择
+          if (this.tierMode === true) {
+            if (!isVideo) {
+              await this.e?.reply?.('该作品不是视频，没有可选的清晰度档位')
+              return { type: 'douyin_tier_selection', aweme_id: data.aweme_id, tiers: [] }
+            }
+            const tierList = buildDouyinTierList(VideoData.data.aweme_detail)
+            if (!tierList.length) {
+              markParseFailed(this.e, '未获取到清晰度档位')
+              await this.e?.reply?.('未获取到可用的清晰度档位信息')
+              return { type: 'douyin_tier_selection', aweme_id: data.aweme_id, tiers: [] }
+            }
+            const lines = tierList.map((t, n) => {
+              const hdrTag = t.hdr ? ' (HDR)' : ''
+              return `${n + 1}. ${t.label}${hdrTag}  ${t.width}×${t.height}  ${t.sizeMb}MB`
+            })
+            await this.e?.reply?.('该视频支持以下清晰度档位，回复序号即可选择下载：\n' + lines.join('\n'))
+            return { type: 'douyin_tier_selection', aweme_id: data.aweme_id, tiers: tierList }
+          }
           // 降级时评论数据置空（分享页不提供评论接口），避免重复请求失败的 Web API
           const CommentsData = usedSharePage
             ? { data: { comments: [] } }
@@ -330,8 +396,9 @@ export class DouYin extends Base {
                   }
 
                   if (hasGeneratedLivePhoto) processedImages.push(await buildLivePhotoTipMessage())
+                  const forwardTitle = buildDouyinForwardTitle(VideoData.data.aweme_detail)
                   try {
-                    for (const forward of await makeForwardMsgBatched(this.e, processedImages, '图集内容')) await this.e.reply(forward)
+                    for (const forward of await makeForwardMsgBatched(this.e, processedImages, forwardTitle, undefined, undefined, { titleOnce: true })) await this.e.reply(forward)
                   } finally {
                     for (const item of temp) await Common.removeFile(item.filepath, true)
                   }
@@ -491,11 +558,23 @@ export class DouYin extends Base {
           let sourceIndex = 0
           volumeAdjusted = false
           mp4sizeSet = ''
+          // 手动指定档位（xk解析档位 选择序号后）：锁定该码流，跳过自动选档与体积下探
+          const tierForced = this.tierIndex != null && Number.isInteger(this.tierIndex) && this.tierIndex >= 0
           if (isVideo) {
             // 视频地址特殊判断：play_addr_h264、play_addr、
-            video = VideoData.data.aweme_detail.video
+            // 并发安全：取本事件副本，避免后续就地改写 video.bit_rate 污染单飞共享缓存中的同一对象
+            const srcVideo = VideoData.data.aweme_detail.video
+            video = srcVideo && Array.isArray(srcVideo.bit_rate)
+              ? { ...srcVideo, bit_rate: [...srcVideo.bit_rate] }
+              : srcVideo
+            // 手动指定档位时直接定位到该码流，并让下载/展示跟随所选档
+            if (tierForced) {
+              sourceIndex = Math.min(this.tierIndex, (video?.bit_rate?.length || 1) - 1)
+              volumeAdjusted = true
+              mp4sizeExceeded = false
+            }
             FPS = video.bit_rate[sourceIndex]?.FPS || '获取失败' // FPS
-            if (Config.douyin.autoResolution) {
+            if (Config.douyin.autoResolution && !tierForced) {
               logger.debug(`开始排除不符合条件的视频分辨率；\n
               共拥有${logger.yellow(video.bit_rate.length)}个视频源\n
               视频ID：${logger.green(VideoData.data.aweme_detail.aweme_id)}\n
@@ -507,17 +586,18 @@ export class DouYin extends Base {
               const limitBytes = sizeLimitMb * 1024 * 1024
               const usableStreams = (video.bit_rate || []).filter(item => item.format !== 'dash')
               // 体积优先+具体档位：保留完整码流列表以便后续下调档位，不在此做单流折叠
-              const volPriTier = Config.douyin.volumePriority && !!getDouyinQualityHeight(Config.douyin.videoQuality)
-              if (!volPriTier) {
+              if (Config.douyin.volumePriority) {
+                // 体积优先：保留完整码流列表，由下方统一下探逻辑在确定 sourceIndex 后选择能发出的档位，避免提前折叠
+                mp4sizeExceeded = false
+              } else {
                 mp4sizeExceeded = usableStreams.length > 0 && usableStreams.every(item => (item.play_addr?.data_size || 0) > limitBytes)
                 video.bit_rate = douyinProcessVideos(video.bit_rate, sizeLimitMb)
-              } else {
-                mp4sizeExceeded = false
               }
             }
             // 视频地址按适配器分支：
             // - QQBot：官方 bot 用裸请求抓取视频 URL，私有 CDN 长链会 403，故用 aweme.snssdk.com 无签名 play 直链（kkk 原方式）
             // - OneBot 等：平台 API 下载带 Referer，能正常拉取 CDN 长链，用 astr 的 getLongLink() 跟随重定向得到可下载直链
+            if (tierForced === false) {
             if (Config.douyin.videoQuality === 'hdr' && video.bit_rate?.length) {
               // 优先选择 HDR 码流（hdr_type 非 0），无 HDR 源时回退首条，避免解析失败
               const hdrIndex = video.bit_rate.findIndex(item => item.hdr_type || item.play_addr?.hdr_type)
@@ -537,29 +617,29 @@ export class DouYin extends Base {
               }
               // 记录设定档位体积（下调前所选码流），供信息图显示“实际解析体积 设定档位体积/限制体积”
               mp4sizeSet = ((video.bit_rate[sourceIndex]?.play_addr?.data_size || 0) / (1024 * 1024)).toFixed(2)
-              // 体积优先：设置具体档位时，若该档位体积超过 maxAutoVideoSize 则自动下调到能发出的档位
-              if (Config.douyin.volumePriority && video.bit_rate?.length) {
-                mp4sizeLimit = Config.douyin.maxAutoVideoSize || 100
-                const vpLimitBytes = mp4sizeLimit * 1024 * 1024
-                const candidates = video.bit_rate.filter(item => item.format !== 'dash' && (item.play_addr?.data_size || 0) > 0)
-                if (candidates.length) {
-                  const chosenBytes = video.bit_rate[sourceIndex]?.play_addr?.data_size || 0
-                  if (chosenBytes > vpLimitBytes) {
-                    const fit = candidates.filter(c => (c.play_addr?.data_size || 0) <= vpLimitBytes)
-                    const pool = fit.length ? fit : candidates
-                    const byRes = (c) => (c.play_addr?.height || 0) || (c.play_addr?.width || 0) || 0
-                    const pick = fit.length
-                      ? pool.reduce((a, b) => (byRes(b) > byRes(a) ? b : a))
-                      : pool.reduce((a, b) => ((b.play_addr?.data_size || 0) < (a.play_addr?.data_size || 0) ? b : a))
-                    const realIdx = video.bit_rate.indexOf(pick)
-                    if (realIdx >= 0) {
-                      sourceIndex = realIdx
-                      volumeAdjusted = true
-                      mp4sizeExceeded = false
-                    }
-                  }
+            }
+            // 体积优先：sourceIndex（hdr/具体档/adapt）确定后，若所选码流超过体积上限则自动下调到能发出的最高清晰度档位；
+            // 存在≤limit候选即下探成功并自动下载；全部档位都超限时下探到体积最小档但保留超限提示，由发送层决定是否发送
+            if (Config.douyin.volumePriority && video.bit_rate?.length) {
+              mp4sizeLimit = Config.douyin.maxAutoVideoSize || 100
+              const vpLimitBytes = mp4sizeLimit * 1024 * 1024
+              const candidates = video.bit_rate.filter(item => item.format !== 'dash' && (item.play_addr?.data_size || 0) > 0)
+              const chosenBytes = video.bit_rate[sourceIndex]?.play_addr?.data_size || 0
+              if (candidates.length && chosenBytes > vpLimitBytes) {
+                const fit = candidates.filter(c => (c.play_addr?.data_size || 0) <= vpLimitBytes)
+                const pool = fit.length ? fit : candidates
+                const byRes = (c) => (c.play_addr?.height || 0) || (c.play_addr?.width || 0) || 0
+                const pick = fit.length
+                  ? pool.reduce((a, b) => (byRes(b) > byRes(a) ? b : a))
+                  : pool.reduce((a, b) => ((b.play_addr?.data_size || 0) < (a.play_addr?.data_size || 0) ? b : a))
+                const realIdx = video.bit_rate.indexOf(pick)
+                if (realIdx >= 0) {
+                  sourceIndex = realIdx
+                  volumeAdjusted = true
+                  mp4sizeExceeded = fit.length === 0
                 }
               }
+            }
             }
             // 体积优先下调档位后，下载与展示均跟随实际选中码流：ratio 按所选码流高度换算，OneBot 直接走所选码流 CDN 直链
             let playRatio = getDouyinQualityRatio(Config.douyin.videoQuality)
@@ -600,7 +680,7 @@ export class DouYin extends Base {
             const szScale = szFixed ? Math.min(1, szQH / szSrcH) : 1
             // 体积优先下调档位后，直接采用所选码流的实际大小
             mp4size = (((video.bit_rate[sourceIndex]?.play_addr?.data_size || 0) * (volumeAdjusted ? 1 : szScale)) / (1024 * 1024)).toFixed(2)
-            // 实际解析体积（字节）：分享页降级等 data_size 缺失时为 0，需远程探测补充用于体积展示与配额预估
+            // 实际解析体积（字节）：分享页降级等 data_size 缺失时为 0，需远程探测补充用于体积展示
             parsedDataSize = video.bit_rate?.[sourceIndex]?.play_addr?.data_size || 0
             if (!parsedDataSize && g_video_url) {
               const probed = await getRemoteFileSize(g_video_url, {
@@ -636,32 +716,15 @@ export class DouYin extends Base {
               }
               if (replyContent.length) await this.e.reply(replyContent)
             } else {
-              let userProfile
-              try {
-                // 作者资料缓存：同一作者的作品被持续转发时复用其主页数据，避免重复请求作者 API
-                const authorKey = `douyin:author:${aweme.author.sec_uid}`
-                userProfile = await runSingleFlightData(authorKey, async () => {
-                  const cachedProfile = getCachedData(authorKey)
-                  if (cachedProfile) return cachedProfile
-                  const fresh = await this.amagi.getDouyinData('用户主页数据', {
-                    sec_uid: aweme.author.sec_uid,
-                    typeMode: 'strict'
-                  })
-                  const profile = fresh?.data?.user
-                  if (profile) setCachedData(authorKey, profile)
-                  return profile
-                })
-              } catch (error) {
-                logger.warn('[抖音] 获取作者主页信息失败，继续渲染视频信息图', error)
+              // 作者资料直接取自已解析到的作品详情(aweme.author,浏览器解析已带完整作者统计)，
+              // 不再额外请求易被抖音风控的「用户主页数据」接口，避免每次解析都因接口失败报 WARN
+              const authorOf = aweme.author || {}
+              const userProfileView = {
+                ip_location: authorOf.ip_location,
+                follower_count: Common.count(authorOf.follower_count),
+                total_favorited: Common.count(authorOf.total_favorited),
+                aweme_count: Common.count(authorOf.aweme_count)
               }
-              const userProfileView = userProfile
-                ? {
-                  ip_location: userProfile.ip_location,
-                  follower_count: Common.count(userProfile.follower_count),
-                  total_favorited: Common.count(userProfile.total_favorited),
-                  aweme_count: Common.count(userProfile.aweme_count)
-                }
-                : undefined
               const musicInfo = aweme.music
                 ? {
                   author: aweme.music.author,
@@ -735,15 +798,19 @@ export class DouYin extends Base {
                 },
                 user_profile: userProfileView,
                 music: musicInfo,
-                video: videoInfo,
-                quotaInfo: getQuotaInfo(this.e, parsedDataSize || video.bit_rate?.[sourceIndex]?.play_addr?.data_size || 0)
+                video: videoInfo
               })
               await this.e.reply(videoInfoImg)
             }
           }
 
-          /** 发送视频 */
-          if (isVideo && hasDouyinContent('视频', 'video') && sendvideofile && !mp4sizeExceeded) {
+          // 体积超限导致不发视频（自动解析场景）：属规则限制停止解析，不算失败，保持成功表情
+          if (isVideo && hasDouyinContent('视频', 'video') && sendvideofile && mp4sizeExceeded && !this.e?._xkCommandParse) {
+            markParseLimited(this.e, '体积超限')
+          }
+
+          /** 发送视频：自动解析超限仅出信息图；手动指令(xk解析)强制下载发送 */
+          if (isVideo && hasDouyinContent('视频', 'video') && sendvideofile && (!mp4sizeExceeded || this.e?._xkCommandParse)) {
             let danmakuList = []
             const sendOriginalVideo = async () => {
               await downloadVideo(
@@ -930,6 +997,7 @@ export class DouYin extends Base {
           //   const search_data = new_userdata
           // }
           if (!MusicData.data.music_info.play_url) {
+            markParseFailed(this.e, '音乐未提供下载链接')
             await this.e.reply('解析错误！该音乐抖音未提供下载链接，无法下载', { reply: true })
             return true
           }
@@ -999,7 +1067,7 @@ export class DouYin extends Base {
           break
       }
     } catch (e) {
-      logger.warn(`抖音解析错误：${e}`)
+      logger.warn(`抖音解析错误：${e?.stack || e}`)
       return false
     }
   }

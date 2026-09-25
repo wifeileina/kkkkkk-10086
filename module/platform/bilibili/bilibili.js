@@ -1,4 +1,4 @@
-import { Base, Render, Config, Networks, mergeFile, Common, baseHeaders, downloadFile, uploadFile, downloadVideo, processImageUrl, makeForwardMsgBatched, getQuotaInfo } from '../../utils/index.js'
+import { Base, Render, Config, Networks, mergeFile, Common, baseHeaders, downloadFile, uploadFile, downloadVideo, processImageUrl, makeForwardMsgBatched, markParseFailed, markParseLimited } from '../../utils/index.js'
 import { getCachedData, setCachedData, runSingleFlightData, runSingleFlight } from '../../utils/ResourceCache.js'
 import { bilibiliApiUrls, DynamicType, AdditionalType, wbi_sign } from '@ikenxuan/amagi'
 import { getBilibiliData } from './api.js'
@@ -68,6 +68,8 @@ export class Bilibili extends Base {
     this.islogin = data?.USER?.STATUS === 'isLogin'
     this.downloadfilename = ''
     this.forceBurnDanmaku = options?.forceBurnDanmaku ?? false
+    this.tierMode = options?.tierMode ?? false
+    this.tierQn = options?.tierQn ?? null
     this.headers = this.headers || {};
     // 使用可选链和空值合并运算符
     this.headers.Referer ||= 'https://www.bilibili.com/'
@@ -106,7 +108,7 @@ export class Bilibili extends Base {
               // videopriority=true 时 qn=80 锁定1080标准版控体积，否则 qn=116 尽量给高清
               const baseURL = bilibiliApiUrls.getVideoStream({ avid: infoData.data.data.aid, cid: biliCid })
               const sign = await wbi_sign(baseURL, useCookie)
-              const qn = Config.bilibili.videopriority === true ? 80 : 116
+              const qn = this.tierQn ?? (Config.bilibili.videopriority === true ? 80 : 116)
               playUrlData = await new Networks({
                 url: `${baseURL}&qn=${qn}&fnval=4048&fourk=1&${sign}`,
                 headers: this.headers
@@ -131,6 +133,23 @@ export class Bilibili extends Base {
           }
           if (this.islogin === undefined) this.islogin = (await checkCk()).Status === 'isLogin'
 
+          // 档位模式：仅列出全部清晰度档位，供 xk解析档位 命令选择；指定档下载时直接锁定该 qn 重新解析
+          if (this.tierMode === true) {
+            const tierList = buildBilibiliTierList(playUrlData)
+            if (!tierList.length) {
+              await this.e?.reply?.('未获取到可用的清晰度档位信息')
+              return { type: 'bilibili_tier_selection', bvid: iddata.bvid, tiers: [] }
+            }
+            // 档位名里已含分辨率（如「流畅 360P」），第二位改为该档视频+音频的体积，避免重复分辨率
+            const tierAudioUrl = getBilibiliPayload(playUrlData)?.dash?.audio?.[0]?.base_url || getBilibiliPayload(playUrlData)?.dash?.audio?.[0]?.baseUrl || ''
+            const lines = await Promise.all(tierList.map(async (t, n) => {
+              const sizeMb = await resolveBilibiliTierSize(t, tierAudioUrl, iddata.bvid)
+              return `${n + 1}. ${t.label}${sizeMb ? `  ${sizeMb}MB` : ''}`
+            }))
+            await this.e?.reply?.('该视频支持以下清晰度档位，回复序号即可选择下载：\n' + lines.join('\n'))
+            return { type: 'bilibili_tier_selection', bvid: iddata.bvid, tiers: tierList }
+          }
+
           const { owner, pic, title, stat, desc } = infoData.data.data
           const { name } = owner
           const { coin, like, share, view, favorite, danmaku } = stat
@@ -141,9 +160,14 @@ export class Bilibili extends Base {
           const playUrlStream = getBilibiliVideoStream(playUrlData)
           // 与实际发送保持一致的编码过滤：优先保内容时锁1080标准版，否则按配置编码取该编码码流
           const displayList = getBilibiliDash(playUrlData)?.video
-          const displayPickStream = Config.bilibili.videopriority === true
+          // 手动指定档位（xk解析档位 选序号后）：信息卡必须跟随实际下载的那一档。
+          // 下载侧（getvideo）已按 tierQn 挑流，展示侧若仍取「最佳码流」就会出现「下载 360P 却显示 1080P」
+          const tierForcedStream = this.tierQn != null && Number.isInteger(this.tierQn) && this.tierQn > 0
+            ? pickBilibiliByQn(displayList, this.tierQn, Config.bilibili.videoCodec)
+            : undefined
+          const displayPickStream = tierForcedStream || (Config.bilibili.videopriority === true
             ? pickBilibili1080Plowest(displayList, Config.bilibili.videoCodec)
-            : (pickBilibiliCodecBest(displayList, Config.bilibili.videoCodec) || playUrlStream)
+            : (pickBilibiliCodecBest(displayList, Config.bilibili.videoCodec) || playUrlStream))
 
           // 从已获取的播放流数据中提取分辨率与编码（无需额外请求），用于信息卡展示
           // videopriority 优先保内容模式下，展示编码跟随实际选中的 displayPickStream，避免与实际发送的编码不一致
@@ -187,6 +211,18 @@ export class Bilibili extends Base {
                 hotDanmaku = getHotBilibiliDanmaku(await this.fetchVideoDanmakuList(danmakuCid, danmakuDuration), 20)
               }
 
+              // 信息卡体积：当 DASH 流内联未提供可靠 size（游客/分享页常为 0）时，用 HEAD 请求取真实体积，避免信息图体积缺失
+              const sizeStream = displayPickStream || playUrlStream
+              const sizeAudioUrl = playUrlPayload?.dash?.audio?.[0]?.base_url || ''
+              if ((!sizeStream?.size || Number(sizeStream.size) === 0) && sizeStream?.base_url && sizeAudioUrl) {
+                try {
+                  const realSize = await getvideosize(sizeStream.base_url, sizeAudioUrl, infoData.data.data.bvid)
+                  if (Number(realSize) > 0) videoMeta.size = realSize
+                } catch (error) {
+                  logger.warn(`[B站] 信息卡获取体积失败，保持内联值: ${error?.message || error}`)
+                }
+              }
+
               await this.e.reply(await Render('bilibili/videoInfo', {
                 video: videoMeta,
                 share_url: 'https://b23.tv/' + infoData.data.data.bvid,
@@ -214,8 +250,7 @@ export class Bilibili extends Base {
                   fans: Common.count(userProfileData.data.data.follower),
                   total_favorited: Common.count(userProfileData.data.data.like_num)
                 },
-                quotaInfo: getQuotaInfo(this.e, playUrlStream?.size || 0)
-              }))
+                }))
             } else {
               /**
                * @type {Object.<string, any>}
@@ -258,7 +293,7 @@ export class Bilibili extends Base {
           videoMeta.sizeExceeded = false
           videoMeta.volAdjusted = false
 
-          if (this.islogin && Config.bilibili.videopriority === false && playUrlPayload.dash?.video?.length && playUrlPayload.dash?.audio?.length) {
+          if (this.islogin && Config.bilibili.videopriority === false && playUrlPayload.dash?.video?.length && playUrlPayload.dash?.audio?.length && this.tierQn == null) {
             /** 过滤视频流信息对象，排除清晰度重复的视频流 */
             const simplify = (playUrlPayload.dash?.video || []).filter((/** @type {{ id: number }} */ item, /** @type {any} */ index, /** @type {any[]}[]} */ self) => {
               return self.findIndex((/** @type {{ id: any }} */ t) => {
@@ -304,7 +339,9 @@ export class Bilibili extends Base {
                 CommentsData: commentsdata,
                 CommentLength: Config.bilibili.realCommentCount ? Common.count(infoData.data.data.stat.reply) : String(commentsdata.length),
                 share_url: 'https://b23.tv/' + infoData.data.data.bvid,
-                Clarity: Config.bilibili.videopriority === true || !this.islogin ? ((displayPickStream?.id != null && qnd[displayPickStream.id]) || getBilibiliAcceptDescription(playUrlData)[0] || '未知') : correctList?.selectedQuality,
+                Clarity: tierForcedStream
+                  ? ((tierForcedStream.id != null && qnd[tierForcedStream.id]) || '未知')
+                  : (Config.bilibili.videopriority === true || !this.islogin ? ((displayPickStream?.id != null && qnd[displayPickStream.id]) || getBilibiliAcceptDescription(playUrlData)[0] || '未知') : correctList?.selectedQuality),
                 VideoSize: Config.bilibili.videopriority === true || !this.islogin ? ((playUrlStream?.size || 0) / (1024 * 1024)).toFixed(2) : videoSize,
                 ImageLength: 0,
                 shareurl: 'https://b23.tv/' + infoData.data.data.bvid
@@ -327,8 +364,10 @@ export class Bilibili extends Base {
 
           if (hasBilibiliContent('视频', 'video')) {
             if (correctList.allExceed) {
+              markParseLimited(this.e, '体积超限')
               await this.e.reply(`解析到的视频所有清晰度均超过 ${Config.bilibili.maxAutoVideoSize || 100}MB，已停止下载\n当前体积上限：${Config.bilibili.maxAutoVideoSize || 100}MB`, { reply: true })
             } else if (Config.upload.usefilelimit && Number(videoSize) > Number(Config.upload.filelimit)) {
+              markParseLimited(this.e, '超过上传大小限制')
               await this.e.reply(`设定的最大上传大小为 ${Config.upload.filelimit}MB\n当前解析到的视频大小为 ${Number(videoSize)}MB\n` + '视频太大了，还是去B站看吧~', { reply: true })
             } else {
               await this.getvideo(
@@ -347,6 +386,7 @@ export class Bilibili extends Base {
 
           if (!videoInfo.data) {
             logger.warn(videoInfo.message, `错误码: ${videoInfo.code}`)
+            markParseFailed(this.e, `番剧信息获取失败: ${videoInfo.message || videoInfo.code}`)
             return true
           }
           for (let i = 0; i < videoInfo.data.result.episodes.length; i++) {
@@ -395,6 +435,7 @@ export class Bilibili extends Base {
             this.e.reply(`收到请求，第${Episode}集\n${this.downloadfilename}\n正在下载中`)
           } else {
             logger.debug(Episode)
+            markParseFailed(this.e, '未匹配到番剧集数')
             this.e.reply('匹配内容失败，请重新发送链接再次解析')
             return true
           }
@@ -410,6 +451,7 @@ export class Bilibili extends Base {
           }).getData()
           if (videoInfo.data.result.episodes[Number(Episode) - 1]?.badge === '会员' && !this.isVIP) {
             logger.warn('该CK不是大会员，无法获取视频流')
+            markParseFailed(this.e, '大会员专享，当前CK无权限')
             return true
           }
           if (Config.bilibili.videoQuality === 0) {
@@ -428,6 +470,7 @@ export class Bilibili extends Base {
               qn: Config.bilibili.videoQuality
             }, simplify, playUrlData.result.dash.audio[0].base_url)
             if (correctList.allExceed) {
+              markParseLimited(this.e, '体积超限')
               this.e.reply(`解析到的视频所有清晰度均超过 ${Config.bilibili.maxAutoVideoSize || 100}MB，已停止下载\n当前体积上限：${Config.bilibili.maxAutoVideoSize || 100}MB`, { reply: true })
               break
             }
@@ -790,6 +833,7 @@ export class Bilibili extends Base {
               const articleId = articleIdValue ? String(articleIdValue) : ''
 
               if (!articleId) {
+                markParseFailed(this.e, '专栏动态缺少专栏 ID')
                 await this.e.reply('该专栏动态缺少专栏 ID，暂时无法解析')
                 break
               }
@@ -862,6 +906,7 @@ export class Bilibili extends Base {
             default: {
               /** @type {any} */
               const unknownItem = dynamicInfo.data.data.item
+              markParseFailed(this.e, `动态类型 ${unknownItem.type} 暂未支持`)
               this.e.reply(`该动态类型「${unknownItem.type}」暂未支持解析`)
               break
             }
@@ -978,9 +1023,12 @@ export class Bilibili extends Base {
       const dash = getBilibiliDash(playUrlData)
       // 优先保内容时，将1080P锁定为标准版(80)，避免取到高码率1080P+(112)/1080P60(116)导致文件偏大；
       // 同时按 videoCodec 配置优先过滤目标编码（如 h265 会取到 hev1 码流而非默认的 avc1）
-      const selectedVideo = Config.bilibili.videopriority === true
-        ? pickBilibili1080Plowest(dash?.video, Config.bilibili.videoCodec)
-        : (pickBilibiliCodecBest(dash?.video, Config.bilibili.videoCodec) || dash?.video?.[0])
+      // 手动指定档位（xk解析档位 选择序号后）：直接按目标 qn 挑选码流，忽略 videopriority 与体积下探
+      const selectedVideo = this.tierQn != null && Number.isInteger(this.tierQn) && this.tierQn > 0
+        ? (pickBilibiliByQn(dash?.video, this.tierQn, Config.bilibili.videoCodec) || dash?.video?.[0])
+        : (Config.bilibili.videopriority === true
+          ? pickBilibili1080Plowest(dash?.video, Config.bilibili.videoCodec)
+          : (pickBilibiliCodecBest(dash?.video, Config.bilibili.videoCodec) || dash?.video?.[0]))
       const videoUrl = selectedVideo?.base_url
       const audioUrl = dash?.audio?.[0]?.base_url
       if (!videoUrl || !audioUrl) {
@@ -1268,6 +1316,103 @@ const qnd = {
   125: '真彩色 HDR ',
   126: '杜比视界',
   127: '超高清 8K'
+}
+
+/**
+ * 从播放流响应中提取全部可选的清晰度档位。
+ * 登录态/游客态响应结构不同（dash.video 逐条码流 vs durl+accept_description），统一归约为 {qn, label} 列表。
+ * @param {*} playUrlData - 播放流响应
+ * @returns {{qn: number, label: string, height: number, baseUrl: string, sizeBytes: number}[]}
+ */
+const buildBilibiliTierList = (playUrlData) => {
+  const payload = getBilibiliPayload(playUrlData)
+  const tiers = []
+  const seenQn = new Set()
+
+  // 优先从 DASH 码流列表提取（含登录态多编码，qn 由 id 标识）
+  const dashVideo = payload?.dash?.video || []
+  for (const item of dashVideo) {
+    const qn = Number(item?.id)
+    if (!Number.isInteger(qn) || qn <= 0 || seenQn.has(qn)) continue
+    seenQn.add(qn)
+    tiers.push({
+      qn,
+      label: qnd[qn] || `清晰度${qn}`,
+      height: item?.height || 0,
+      baseUrl: item?.base_url || item?.baseUrl || '',
+      sizeBytes: Number(item?.size) > 0 ? Number(item.size) : 0
+    })
+  }
+
+  // 无 DASH（游客态 durl）时，用 accept_quality + accept_description 配对
+  if (tiers.length === 0) {
+    const qualityList = payload?.accept_quality || payload?.quality || []
+    const descList = payload?.accept_description || []
+    qualityList.forEach((rawQn, i) => {
+      const qn = Number(rawQn)
+      if (!Number.isInteger(qn) || qn <= 0 || seenQn.has(qn)) return
+      seenQn.add(qn)
+      tiers.push({
+        qn,
+        label: descList[i] || qnd[qn] || `清晰度${qn}`,
+        height: 0,
+        baseUrl: '',
+        sizeBytes: 0
+      })
+    })
+  }
+
+  // 按 qn 升序展示（低→高）
+  return tiers.sort((a, b) => a.qn - b.qn)
+}
+
+/**
+ * 档位列表里的体积展示：优先用内联 size（字节），缺失时 HEAD 实测该档视频+音频总大小。
+ * 都拿不到时返回空串，调用方据此不显示——避免用「360P」这类分辨率信息重复占位。
+ * @param {{qn?: number, baseUrl?: string, sizeBytes?: number}} tier - 档位
+ * @param {string} audioUrl - 音频流URL（各档共用）
+ * @param {string} bvid - 视频BV号
+ * @returns {Promise<string>} 形如 "8.32" 的MB数值，取不到则为空串
+ */
+const resolveBilibiliTierSize = async (tier, audioUrl, bvid) => {
+  if (tier?.sizeBytes > 0) return (tier.sizeBytes / (1024 * 1024)).toFixed(2)
+  if (!tier?.baseUrl) return ''
+  try {
+    const size = await getvideosize(tier.baseUrl, audioUrl, bvid)
+    return Number(size) > 0 ? size : ''
+  } catch (error) {
+    logger.debug(`[B站] 档位体积获取失败(qn=${tier?.qn}): ${error?.message || error}`)
+    return ''
+  }
+}
+
+/**
+ * 在码流列表中按 qn 选定对应档位（tierQn）。
+ * 找不到精确 qn 时取最接近且更高的档；无更高档则取最高。
+ * @param {Array<{id?: number}>} videoList - DASH码流列表
+ * @param {number} tierQn - 目标 qn
+ * @param {string} [codec] - 目标编码，优先在匹配编码内挑选
+ * @returns {{id?: number}|undefined}
+ */
+const pickBilibiliByQn = (videoList = [], tierQn, codec) => {
+  if (!Array.isArray(videoList) || videoList.length === 0) return undefined
+  const codecFilter = { h264: ['avc1', 'avc'], h265: ['hev1', 'hevc', 'hvc1', 'hvc'], av1: ['av01'] }
+  const wanted = codecFilter[codec]
+  let pool = videoList
+  if (wanted?.length) {
+    const matched = videoList.filter(v => {
+      const c = String(v?.codecs || '').toLowerCase()
+      return wanted.some(prefix => c.startsWith(prefix))
+    })
+    if (matched.length > 0) pool = matched
+  }
+  const withQn = pool.filter(v => typeof v?.id === 'number')
+  if (withQn.length === 0) return pool[0]
+  const exact = withQn.find(v => v.id === tierQn)
+  if (exact) return exact
+  const higher = withQn.filter(v => v.id > tierQn).sort((a, b) => a.id - b.id)
+  if (higher.length > 0) return higher[0]
+  return withQn.reduce((max, v) => (v.id > max.id ? v : max))
 }
 
 /**

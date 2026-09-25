@@ -1,5 +1,4 @@
 import { Config, Render, Version, Common } from '../module/utils/index.js'
-import { resetQuota } from '../module/utils/quota.js'
 import { bilibiliLogin } from '../module/platform/bilibili/login.js'
 import { dylogin } from '../module/platform/douyin/login.js'
 import { xiaohongshuLogin } from '../module/platform/xiaohongshu/login.js'
@@ -191,11 +190,6 @@ export class kkkAdmin extends plugin {
           reg: /^#?xk解析删除缓存$/,
           fnc: 'deltemp',
           permission: 'master'
-        },
-        {
-          reg: /^#?xk重置配额$/,
-          fnc: 'resetQuota',
-          permission: 'master'
         }
       ]
     })
@@ -216,12 +210,6 @@ export class kkkAdmin extends plugin {
     await removeAllFiles(Common.tempDri.video)
       .then(() => logger.warn(Common.tempDri.video + '所有文件已删除'))
       .catch((err) => logger.error('删除文件时出错:', err))
-    return true
-  }
-
-  async resetQuota(e) {
-    const cleared = resetQuota()
-    await e.reply(`已重置今日配额统计（下载 ${(cleared.download / 1048576).toFixed(1)}MB / 上传 ${(cleared.upload / 1048576).toFixed(1)}MB）`)
     return true
   }
 

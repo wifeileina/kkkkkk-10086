@@ -5,8 +5,8 @@ import { Render } from '../../utils/Render.js'
 import Config from '../../utils/Config.js'
 import Common from '../../utils/Common.js'
 import { processImageUrl } from '../../utils/ImageHelper.js'
-import { getQuotaInfo } from '../../utils/quota.js'
 import { makeForwardMsgBatched } from '../../utils/ForwardMsg.js'
+import { markParseFailed, markParseLimited } from '../../utils/EmojiReaction.js'
 import { buildLivePhotoMessages, buildLivePhotoTipMessage, pickXiaohongshuImageUrl } from './livePhoto.js'
 import { buildXiaohongshuEmojiList, buildXiaohongshuText } from './comments.js'
 import { xiaohongshuSign, createBoundXiaohongshuFetcher } from '@ikenxuan/amagi'
@@ -205,10 +205,12 @@ export class Xiaohongshu extends Base {
       xhsCookie = await resolveXiaohongshuCookie()
     } catch (error) {
       logger.error(`[小红书] 获取解析会话失败: ${error?.message || error}`)
+      markParseFailed(this.e, '解析会话获取失败')
       await this.e.reply('小红书解析会话获取失败，请稍后重试')
       return true
     }
     if (!xhsCookie) {
+      markParseFailed(this.e, '未配置小红书 Cookies')
       await this.e.reply('我还没有小红书 Cookies，暂时无法解析')
       return true
     }
@@ -299,8 +301,7 @@ export class Xiaohongshu extends Base {
         ip_location: card.ip_location || '',
         share_url: buildShareUrl(data),
         video,
-        quotaInfo: getQuotaInfo(this.e, currentVideoBytes)
-      })
+        })
       await this.e.reply(noteInfoImg)
     }
 
@@ -366,11 +367,13 @@ export class Xiaohongshu extends Base {
     if (card.video && sendContent.includes('video')) {
       const stream = selectVideoStream(card.video.media?.stream)
       if (xhsSizeExceeded) {
+        markParseLimited(this.e, '体积超限')
         await this.e.reply(`解析到的视频所有清晰度均超过 ${xhsSizeLimitMb}MB，已停止下载\n当前体积上限：${xhsSizeLimitMb}MB`, { reply: true })
         return true
       }
       const videoUrl = getVideoUrl(card, stream)
       if (!videoUrl) {
+        markParseFailed(this.e, '未找到可用的视频地址')
         await this.e.reply('未找到可用的视频地址')
         return true
       }

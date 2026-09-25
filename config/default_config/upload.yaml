@@ -45,19 +45,3 @@ downloadAutoReduce: true
 
 # 最低下载速度，单位：MB/s，自动降速不会低于此值
 downloadMinSpeed: 1
-
-# ===== 配额限制 =====
-# 每日流量配额：开启后按当日限额统计上传/下载流量，超限后仅解析信息图，不再下载/发送视频
-quota:
-  # 总量开关，关闭则配额限制不生效
-  enable: false
-  # 每日下载配额，单位：MB。当日已下载 + 本次 >= 该值时停止下载视频，仅出信息图；0 表示不限制
-  downloadLimit: 0
-  # 每日上传配额，单位：MB。当日已上传 + 本次 >= 该值时停止发送视频，仅出信息图；0 表示不限制
-  uploadLimit: 0
-  # 超额强制解析权限：配额超限后，拥有该权限的人仍可正常下载/发送视频。取值：all / master / admin / group.owner / group.admin
-  # 设为 master（主人）时信息图不显示强制提示；设为其他等级时会在信息图提示「继续下载指令：xk解析 权限:xxx」
-  forcePermission: master
-  # 主人不计入配额：主人(机器人主人)超限时始终可正常解析下载；开启后主人流量不计入配额统计，
-  # 关闭则主人流量计入统计但主人仍不被配额拦截
-  masterExempt: true

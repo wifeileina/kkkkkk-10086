@@ -283,37 +283,6 @@ body.light-mode .logo {
   text-align: left;
 }
 
-/* ---------- 配额提示 ---------- */
-.quota-hint {
-  box-align: center;
-  -webkit-box-align: center;
-  -webkit-align-items: center;
-  -moz-box-align: center;
-  -ms-flex-align: center;
-  align-items: center;
-  padding: 12px 12px;
-  margin-top: 8px;
-  letter-spacing: 4px;
-  font-size: 40px;
-  font-weight: 700;
-  white-space: normal;
-  word-break: break-all;
-}
-
-/* ---------- 超额强制解析提示 ---------- */
-.force-hint {
-  margin-top: 12px;
-  padding: 12px 12px;
-  background: rgba(255, 140, 0, 0.14);
-  border: 2px dashed rgba(255, 140, 0, 0.55);
-  color: #ffffff;
-}
-
-body.dark-mode .force-hint {
-  background: rgba(255, 140, 0, 0.22);
-  color: #ffffff;
-}
-
 /* ---------- 配额达上限，已使用数字标红 ---------- */
 .quota-used-over {
   mix-blend-mode: normal;

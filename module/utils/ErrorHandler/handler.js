@@ -1,7 +1,7 @@
 import { getStrategies } from './strategy.js'
 import { renderErrorReport } from './render.js'
 import { sendErrorToAllMasters, sendErrorToMaster, sendErrorToTrigger } from './sender.js'
-import { EmojiReactionManager } from '../EmojiReaction.js'
+import { EmojiReactionManager, isParseFailed } from '../EmojiReaction.js'
 
 export const handleBusinessError = async (error, options, logs = [], event) => {
   const ctx = {
@@ -50,8 +50,12 @@ export const wrapWithErrorHandler = (fn, options) => {
     try {
       const result = await fn(event, next)
       if (emojiManager) {
+        // 解析失败（作品不存在/接口无数据/类型不支持等）不贴成功表情，改贴哭泣；
+        // 规则限制（体积超限等）不算失败，仍按成功处理
+        const failed = isParseFailed(event)
+        if (failed) logger.info(`[${options.businessName}] 解析失败，贴失败表情${event?._xkParseFailedReason ? `：${event._xkParseFailedReason}` : ''}`)
         successTimer = setTimeout(() => {
-          emojiManager.replace('PROCESSING', 'SUCCESS').catch(() => {})
+          emojiManager.replace('PROCESSING', failed ? 'ERROR' : 'SUCCESS').catch(() => {})
         }, 1500)
       }
       return result

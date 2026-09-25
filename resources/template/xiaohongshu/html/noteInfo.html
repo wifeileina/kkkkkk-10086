@@ -43,12 +43,6 @@
       <div><strong>{{statistics.collected_count || 0}}</strong><span>收藏</span></div>
       <div><strong>{{statistics.share_count || 0}}</strong><span>分享</span></div>
     </section>
-    {{if quotaInfo && quotaInfo.enabled}}
-    <div class="quota-hint">{{@quotaInfo.text}}</div>
-    {{/if}}
-    {{if quotaInfo && quotaInfo.showForceHint}}
-    <div class="quota-hint force-hint">继续下载指令：xk解析  权限:{{quotaInfo.forcePermissionLabel}}</div>
-    {{/if}}
 
     <footer>
       <section class="author">

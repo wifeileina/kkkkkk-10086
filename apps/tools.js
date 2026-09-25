@@ -3,7 +3,7 @@ import { Bilibili, getBilibiliID } from '../module/platform/bilibili/index.js'
 import { DouYin, getDouyinID } from '../module/platform/douyin/index.js'
 import { Xiaohongshu, getXiaohongshuID } from '../module/platform/xiaohongshu/index.js'
 import { Config, Common, UploadRecord, wrapWithErrorHandler, downloadVideo, baseHeaders } from '../module/utils/index.js'
-import { arbitrationShouldParse } from '../module/utils/EmojiReaction.js'
+import { arbitrationShouldParse, markParseFailed } from '../module/utils/EmojiReaction.js'
 import { douyinParseQueue, bilibiliParseQueue, kuaishouParseQueue, xiaohongshuParseQueue } from '../module/utils/ConcurrencyQueue.js'
 import { getStatisticsDB } from '../module/db/index.js'
 import { getDouyinData } from '../module/platform/douyin/api.js'
@@ -11,6 +11,10 @@ import { getDouyinData } from '../module/platform/douyin/api.js'
 // 用户状态存储对象
 const user = {}
 const douyinSelections = new Map()
+const tierSelections = new Map()
+
+// 档位命令：#前缀可选，支持 xk解析档位 / xk档位解析 / 解析档位 / 档位解析 / xk档位
+const TIER_COMMAND_REG = /^#?(?:xk解析档位|xk档位解析|解析档位|档位解析|xk档位)/
 
 const getConfigValue = (value, fallback) => value ?? fallback
 const isVideoToolEnabled = () => getConfigValue(Config.app?.videoTool, Config.app?.videotool) !== false
@@ -78,6 +82,7 @@ export class kkkTools extends plugin {
       event: 'message',
       priority: isDefaultTool() ? -Infinity : Config.app.priority,
       rule: [
+        { reg: TIER_COMMAND_REG, fnc: 'tierParse' }, // 档位选择命令，须优先于平台链接规则，避免被当作普通解析
         ...generateRules(), // 动态生成的平台规则
         ...(isVideoToolEnabled() ? [{ reg: /^(\[图片\])?$/, fnc: 'imageQrCode' }] : []),
         { reg: /^#?\d{1,2}$/, fnc: 'selectDouyinWork' },
@@ -119,6 +124,11 @@ export class kkkTools extends plugin {
     e.msg = await Common.getReplyMessage(e)
     logger.info(`[解析][DEBUG] prefix后 e.msg=${JSON.stringify(String(e.msg || '')).slice(0, 180)}`)
 
+    // xk解析档位：列出全部清晰度档位供选择下载
+    if (TIER_COMMAND_REG.test(originalMsg)) {
+      e._xkTierCommand = true
+    }
+
     if (/^#?(弹幕解析|xk弹幕解析)/.test(originalMsg)) {
       e.msg = `#弹幕解析 ${e.msg}`
     }
@@ -148,6 +158,28 @@ export class kkkTools extends plugin {
    * @param {any} e 事件对象
    * @returns {Promise<boolean>}
    */
+  /**
+   * xk解析档位：列出链接视频全部清晰度档位供选择下载。
+   * 本规则优先级最高，直接进入档位模式，避免被普通平台链接规则抢走。
+   */
+  async tierParse(e) {
+    const originalMsg = e.msg || ''
+    e.msg = await Common.getReplyMessage(e)
+    if (TIER_COMMAND_REG.test(originalMsg)) {
+      e._xkTierCommand = true
+    }
+    // QQ 小程序等 JSON 卡片里的链接会被转义成 https:\/\/，先去掉反斜杠再判断
+    e.msg = String(e.msg || '').replaceAll('\\', '')
+    if (/bilibili\.com|b23\.tv|bili2233\.cn|\bBV[1-9a-zA-Z]{10}\b|\bav\d+\b/i.test(e.msg)) {
+      return await this._bilibili(e)
+    }
+    if (/douyin\.com|iesdouyin\.com/i.test(e.msg)) {
+      return await this._douyin(e)
+    }
+    await e.reply('请发送含视频链接的「xk解析档位」指令')
+    return true
+  }
+
   async imageQrCode(e) {
     const msg = await Common.getReplyMessage(e)
     if (!msg || msg === e.msg) return false
@@ -203,11 +235,14 @@ export class kkkTools extends plugin {
 
   async _douyin(e) {
     const forceBurnDanmaku = /^#?(弹幕解析|xk弹幕解析)/.test(e.msg)
-    const urlMatch = e.msg.match(/https?:\/\/(?:www\.|v\.|jx\.|m\.|jingxuan\.)?(douyin\.com|iesdouyin\.com)\/[^\s]+/g)
+    const tierMode = Boolean(e._xkTierCommand)
+    // QQ 小程序等 JSON 卡片里的链接会被转义成 https:\/\/，先去掉反斜杠再提取
+    const msg = String(e.msg || '').replaceAll('\\', '')
+    const urlMatch = msg.match(/https?:\/\/(?:www\.|v\.|jx\.|m\.|jingxuan\.)?(douyin\.com|iesdouyin\.com)\/[^\s]+/g)
     if (urlMatch && urlMatch[0]) {
       const result = await douyinParseQueue.run(async () => {
         const iddata = await getDouyinID(urlMatch[0])
-        return await new DouYin(e, iddata, { forceBurnDanmaku }).RESOURCES(iddata)
+        return await new DouYin(e, iddata, { forceBurnDanmaku, tierMode }).RESOURCES(iddata)
       })
       if (result?.type === 'douyin_user_selection') {
         const key = getSelectionKey(e)
@@ -220,6 +255,18 @@ export class kkkTools extends plugin {
           if (douyinSelections.get(key) === selection) douyinSelections.delete(key)
         }, result.timeoutSeconds * 1000)
       }
+      if (result?.type === 'douyin_tier_selection') {
+        const key = getSelectionKey(e)
+        const selection = {
+          aweme_id: result.aweme_id,
+          tiers: result.tiers,
+          expiresAt: Date.now() + 120000
+        }
+        tierSelections.set(key, selection)
+        setTimeout(() => {
+          if (tierSelections.get(key) === selection) tierSelections.delete(key)
+        }, 120000)
+      }
       await recordParseStatistics(e, 'douyin')
     }
     return true
@@ -228,6 +275,34 @@ export class kkkTools extends plugin {
   async selectDouyinWork(e) {
     if (this._isPrivateParseBlocked(e, '抖音主页作品选择')) return true
     const key = getSelectionKey(e)
+
+    // xk解析档位：优先处理清晰度档位选择，按序号下载指定档
+    const tierSel = tierSelections.get(key)
+    if (tierSel && Date.now() <= tierSel.expiresAt && tierSel.tiers.length) {
+      const index = Number((e.msg || '').replace(/^#/, ''))
+      const tier = tierSel.tiers[index - 1]
+      if (!Number.isFinite(index) || !tier) {
+        await e.reply(`请输入 1~${tierSel.tiers.length} 之间的序号`)
+        return true
+      }
+      tierSelections.delete(key)
+      if (tierSel.platform === 'bilibili') {
+        await this.runWithErrorHandler(e, 'B站指定档位下载', async event => {
+          await this._bilibili(event, tier.qn, tierSel.url)
+        })
+        return true
+      }
+      const iddata = { type: 'one_work', aweme_id: tierSel.aweme_id }
+      await this.runWithErrorHandler(e, '抖音指定档位下载', async event => {
+        await douyinParseQueue.run(async () => {
+          await new DouYin(event, iddata, { tierIndex: tier.index }).RESOURCES(iddata)
+          await recordParseStatistics(event, 'douyin')
+        })
+      })
+      return true
+    }
+    if (tierSel) tierSelections.delete(key)
+
     const selection = douyinSelections.get(key)
     if (!selection) return false
     if (Date.now() > selection.expiresAt) {
@@ -268,9 +343,10 @@ export class kkkTools extends plugin {
     return await this.runWithErrorHandler(e, 'B站视频解析', this._bilibili)
   }
 
-  async _bilibili(e) {
+  async _bilibili(e, tierQn, explicitUrl) {
     const forceBurnDanmaku = /^#?(弹幕解析|xk弹幕解析)/.test(e.msg)
-    let url = (e.msg || (e.message?.[0]?.data || '')).replaceAll('\\', '').trim()
+    // 档位选择后 e.msg 已是序号，需用之前存下的链接，避免把序号当链接解析
+    let url = (explicitUrl || e.msg || (e.message?.[0]?.data || '')).replaceAll('\\', '').trim()
 
     // 处理不同类型的B站链接
     if (url.includes('b23.tv')) {
@@ -283,12 +359,37 @@ export class kkkTools extends plugin {
 
     if (!url) {
       logger.warn(`未能在消息中找到有效的B站分享链接、BV号或av号: ${url}`)
+      markParseFailed(e, '未找到有效的B站链接')
+      return true
+    }
+
+    // 手动指定档位（xk解析档位 选择序号后）：以目标 qn 重新解析下载
+    if (tierQn != null && Number.isInteger(tierQn) && tierQn > 0) {
+      await bilibiliParseQueue.run(async () => {
+        const id = await getBilibiliID(url)
+        await new Bilibili(e, id, { forceBurnDanmaku, tierMode: false, tierQn }).RESOURCES(id)
+      })
+      await recordParseStatistics(e, 'bilibili')
       return true
     }
 
     await bilibiliParseQueue.run(async () => {
       const id = await getBilibiliID(url)
-      await new Bilibili(e, id, { forceBurnDanmaku }).RESOURCES(id)
+      const res = await new Bilibili(e, id, { forceBurnDanmaku, tierMode: e._xkTierCommand }).RESOURCES(id)
+      if (res?.type === 'bilibili_tier_selection') {
+        const key = getSelectionKey(e)
+        const selection = {
+          platform: 'bilibili',
+          bvid: res.bvid,
+          url,
+          tiers: res.tiers,
+          expiresAt: Date.now() + 120000
+        }
+        tierSelections.set(key, selection)
+        setTimeout(() => {
+          if (tierSelections.get(key) === selection) tierSelections.delete(key)
+        }, 120000)
+      }
     })
     await recordParseStatistics(e, 'bilibili')
 
@@ -335,6 +436,7 @@ export class kkkTools extends plugin {
     const url = e.msg.replaceAll('\\', '').match(/https?:\/\/[^\s"'<>]+/i)?.[0]
     if (!url) {
       logger.warn(`未能在消息中找到有效的小红书链接: ${e.msg}`)
+      markParseFailed(e, '未找到有效的小红书链接')
       return true
     }
 

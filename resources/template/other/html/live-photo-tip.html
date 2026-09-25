@@ -1,6 +1,44 @@
 <html style="margin:0;padding:0;">
 <title>实况图跨系统支持 · 小卡解析</title>
-<div id="root" style="position:relative;width:100%;overflow:hidden;box-sizing:border-box;font-family:'LXGW WenKai','PingFang SC',-apple-system,system-ui,sans-serif;color:#1d1d1f;background:linear-gradient(180deg,#f6f6fb 0%,#efeef5 100%);padding:32px 16px;-webkit-font-smoothing:antialiased;">
+<style>
+  :root {
+    --text: #1d1d1f;
+    --text2: #6e6e73;
+    --text3: #86868b;
+    --bg1: #f6f6fb;
+    --bg2: #efeef5;
+    --card1: rgba(255,255,255,0.66);
+    --card2: rgba(255,255,255,0.78);
+    --border: rgba(0,0,0,0.08);
+    --shadow1: rgba(80,90,160,0.08);
+    --shadow2: rgba(160,90,60,0.08);
+    --shadow3: rgba(160,60,110,0.08);
+    --shadow4: rgba(90,80,150,0.10);
+    --ok-text: #1d7a3a;   --ok-bg: rgba(52,199,89,0.14);
+    --warn-text: #b25000; --warn-bg: rgba(255,149,0,0.16);
+    --no-text: #d70015;   --no-bg: rgba(255,59,48,0.13);
+    --tip-text: #00408c;  --tip-bg: rgba(0,113,227,0.10);
+  }
+  #root.dark-mode {
+    --text: #f2f2f4;
+    --text2: #a3a3a8;
+    --text3: #8e8e93;
+    --bg1: #161618;
+    --bg2: #26262a;
+    --card1: rgba(44,44,48,0.72);
+    --card2: rgba(40,40,46,0.82);
+    --border: rgba(255,255,255,0.12);
+    --shadow1: rgba(0,0,0,0.5);
+    --shadow2: rgba(0,0,0,0.5);
+    --shadow3: rgba(0,0,0,0.5);
+    --shadow4: rgba(0,0,0,0.55);
+    --ok-text: #34c759;   --ok-bg: rgba(52,199,89,0.16);
+    --warn-text: #ffb340; --warn-bg: rgba(255,149,0,0.18);
+    --no-text: #ff6b61;   --no-bg: rgba(255,59,48,0.20);
+    --tip-text: #5bc0ff;  --tip-bg: rgba(0,113,227,0.18);
+  }
+</style>
+<div id="root" class="{{useDarkTheme ? 'dark-mode' : ''}}" style="position:relative;width:100%;overflow:hidden;box-sizing:border-box;font-family:'LXGW WenKai','PingFang SC',-apple-system,system-ui,sans-serif;color:var(--text);background:linear-gradient(180deg,var(--bg1) 0%,var(--bg2) 100%);padding:32px 16px;-webkit-font-smoothing:antialiased;">
 
   <div style="position:absolute;top:-120px;left:-100px;width:520px;height:520px;border-radius:50%;background:radial-gradient(circle,rgba(10,132,255,0.38) 0%,rgba(10,132,255,0) 68%);filter:blur(50px);pointer-events:none;animation:floatBlue 16s ease-in-out infinite alternate;"></div>
   <div style="position:absolute;bottom:-140px;right:-110px;width:560px;height:560px;border-radius:50%;background:radial-gradient(circle,rgba(255,45,140,0.30) 0%,rgba(255,45,140,0) 68%);filter:blur(60px);pointer-events:none;animation:floatPink 19s ease-in-out infinite alternate;"></div>
@@ -8,89 +46,89 @@
   <div style="position:relative;z-index:1;max-width:820px;margin:0 auto;box-sizing:border-box;">
 
     <div style="animation:rise .5s cubic-bezier(.22,.61,.36,1) both;">
-      <div style="font-size:clamp(26px,4vw,34px);font-weight:700;letter-spacing:0.01em;line-height:1.15;color:#1d1d1f;margin-bottom:6px;">实况图跨系统支持</div>
-      <div style="font-size:15px;line-height:1.6;color:#6e6e73;max-width:640px;">小卡解析 | Live Photo 生成方式：单文件 = JPEG 图片 + XMP 元数据 + 末尾追加 MP4 视频。仅兼容单文件式 Motion Photo 系统。</div>
+      <div style="font-size:clamp(26px,4vw,34px);font-weight:700;letter-spacing:0.01em;line-height:1.15;color:var(--text);margin-bottom:6px;">实况图跨系统支持</div>
+      <div style="font-size:15px;line-height:1.6;color:var(--text2);max-width:640px;">小卡解析 | Live Photo 生成方式：单文件 = JPEG 图片 + XMP 元数据 + 末尾追加 MP4 视频。仅兼容单文件式 Motion Photo 系统。</div>
     </div>
 
     <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:24px;margin-bottom:24px;">
-      <div style="flex:1 1 200px;background:rgba(255,255,255,0.66);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border-radius:16px;padding:16px;box-shadow:0 2px 14px rgba(80,90,160,0.08);box-sizing:border-box;animation:rise .5s .06s cubic-bezier(.22,.61,.36,1) both;">
+      <div style="flex:1 1 200px;background:var(--card1);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border-radius:16px;padding:16px;box-shadow:0 2px 14px var(--shadow1);box-sizing:border-box;animation:rise .5s .06s cubic-bezier(.22,.61,.36,1) both;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
           <span style="width:10px;height:10px;border-radius:50%;background:#34C759;display:inline-block;box-shadow:0 0 8px rgba(52,199,89,0.6);"></span>
-          <span style="font-size:13px;font-weight:600;letter-spacing:0.06em;color:#6e6e73;text-transform:uppercase;">实测支持</span>
-          <span style="font-size:24px;font-weight:700;letter-spacing:0;color:#1d1d1f;margin-left:auto;">3</span>
+          <span style="font-size:13px;font-weight:600;letter-spacing:0.06em;color:var(--text2);text-transform:uppercase;">实测支持</span>
+          <span style="font-size:24px;font-weight:700;letter-spacing:0;color:var(--text);margin-left:auto;">3</span>
         </div>
-        <div style="font-size:14px;line-height:1.5;color:#1d1d1f;">Google / Pixel、小米 HyperOS、OPPO ColorOS</div>
+        <div style="font-size:14px;line-height:1.5;color:var(--text);">Google / Pixel、小米 HyperOS、OPPO ColorOS</div>
       </div>
-      <div style="flex:1 1 200px;background:rgba(255,255,255,0.66);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border-radius:16px;padding:16px;box-shadow:0 2px 14px rgba(160,90,60,0.08);box-sizing:border-box;animation:rise .5s .12s cubic-bezier(.22,.61,.36,1) both;">
+      <div style="flex:1 1 200px;background:var(--card1);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border-radius:16px;padding:16px;box-shadow:0 2px 14px var(--shadow2);box-sizing:border-box;animation:rise .5s .12s cubic-bezier(.22,.61,.36,1) both;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
           <span style="width:10px;height:10px;border-radius:50%;background:#FF9500;display:inline-block;box-shadow:0 0 8px rgba(255,149,0,0.6);"></span>
-          <span style="font-size:13px;font-weight:600;letter-spacing:0.06em;color:#6e6e73;text-transform:uppercase;">理论支持</span>
-          <span style="font-size:24px;font-weight:700;letter-spacing:0;color:#1d1d1f;margin-left:auto;">1</span>
+          <span style="font-size:13px;font-weight:600;letter-spacing:0.06em;color:var(--text2);text-transform:uppercase;">理论支持</span>
+          <span style="font-size:24px;font-weight:700;letter-spacing:0;color:var(--text);margin-left:auto;">1</span>
         </div>
-        <div style="font-size:14px;line-height:1.5;color:#1d1d1f;">华为 / 荣耀 —— 未经实机验证</div>
+        <div style="font-size:14px;line-height:1.5;color:var(--text);">华为 / 荣耀 —— 未经实机验证</div>
       </div>
-      <div style="flex:1 1 200px;background:rgba(255,255,255,0.66);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border-radius:16px;padding:16px;box-shadow:0 2px 14px rgba(160,60,110,0.08);box-sizing:border-box;animation:rise .5s .18s cubic-bezier(.22,.61,.36,1) both;">
+      <div style="flex:1 1 200px;background:var(--card1);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border-radius:16px;padding:16px;box-shadow:0 2px 14px var(--shadow3);box-sizing:border-box;animation:rise .5s .18s cubic-bezier(.22,.61,.36,1) both;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
           <span style="width:10px;height:10px;border-radius:50%;background:#FF3B30;display:inline-block;box-shadow:0 0 8px rgba(255,59,48,0.6);"></span>
-          <span style="font-size:13px;font-weight:600;letter-spacing:0.06em;color:#6e6e73;text-transform:uppercase;">不支持</span>
-          <span style="font-size:24px;font-weight:700;letter-spacing:0;color:#1d1d1f;margin-left:auto;">2</span>
+          <span style="font-size:13px;font-weight:600;letter-spacing:0.06em;color:var(--text2);text-transform:uppercase;">不支持</span>
+          <span style="font-size:24px;font-weight:700;letter-spacing:0;color:var(--text);margin-left:auto;">2</span>
         </div>
-        <div style="font-size:14px;line-height:1.5;color:#1d1d1f;">iPhone（HEIC+MOV）、vivo（JPG+MP4）</div>
+        <div style="font-size:14px;line-height:1.5;color:var(--text);">iPhone（HEIC+MOV）、vivo（JPG+MP4）</div>
       </div>
     </div>
 
-    <div style="background:rgba(255,255,255,0.78);backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);border-radius:18px;overflow:hidden;box-shadow:0 6px 28px rgba(90,80,150,0.10);animation:rise .5s .24s cubic-bezier(.22,.61,.36,1) both;">
+    <div style="background:var(--card2);backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);border-radius:18px;overflow:hidden;box-shadow:0 6px 28px var(--shadow4);animation:rise .5s .24s cubic-bezier(.22,.61,.36,1) both;">
 
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:0.5px solid rgba(0,0,0,0.08);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:0.5px solid var(--border);">
         <div>
-          <div style="font-size:16px;font-weight:600;color:#1d1d1f;">Google / Pixel</div>
-          <div style="font-size:13px;color:#86868b;margin-top:3px;line-height:1.5;">单文件（JPEG + MP4） · 标准 Motion Photo 格式</div>
+          <div style="font-size:16px;font-weight:600;color:var(--text);">Google / Pixel</div>
+          <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">单文件（JPEG + MP4） · 标准 Motion Photo 格式</div>
         </div>
-        <span style="flex-shrink:0;background:rgba(52,199,89,0.14);color:#1d7a3a;font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">✓ 支持</span>
+        <span style="flex-shrink:0;background:var(--ok-bg);color:var(--ok-text);font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">✓ 支持</span>
       </div>
 
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:0.5px solid rgba(0,0,0,0.08);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:0.5px solid var(--border);">
         <div>
-          <div style="font-size:16px;font-weight:600;color:#1d1d1f;">小米 HyperOS</div>
-          <div style="font-size:13px;color:#86868b;margin-top:3px;line-height:1.5;">单文件（JPEG + MP4） · 兼容 Google 标准 + 小米扩展</div>
+          <div style="font-size:16px;font-weight:600;color:var(--text);">小米 HyperOS</div>
+          <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">单文件（JPEG + MP4） · 兼容 Google 标准 + 小米扩展</div>
         </div>
-        <span style="flex-shrink:0;background:rgba(52,199,89,0.14);color:#1d7a3a;font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">✓ 支持</span>
+        <span style="flex-shrink:0;background:var(--ok-bg);color:var(--ok-text);font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">✓ 支持</span>
       </div>
 
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:0.5px solid rgba(0,0,0,0.08);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:0.5px solid var(--border);">
         <div>
-          <div style="font-size:16px;font-weight:600;color:#1d1d1f;">OPPO ColorOS</div>
-          <div style="font-size:13px;color:#86868b;margin-top:3px;line-height:1.5;">单文件（JPEG + MP4） · 兼容 Google 标准 + OPPO 扩展</div>
+          <div style="font-size:16px;font-weight:600;color:var(--text);">OPPO ColorOS</div>
+          <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">单文件（JPEG + MP4） · 兼容 Google 标准 + OPPO 扩展</div>
         </div>
-        <span style="flex-shrink:0;background:rgba(52,199,89,0.14);color:#1d7a3a;font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">✓ 支持</span>
+        <span style="flex-shrink:0;background:var(--ok-bg);color:var(--ok-text);font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">✓ 支持</span>
       </div>
 
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:0.5px solid rgba(0,0,0,0.08);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:0.5px solid var(--border);">
         <div>
-          <div style="font-size:16px;font-weight:600;color:#1d1d1f;">华为 / 荣耀</div>
-          <div style="font-size:13px;color:#86868b;margin-top:3px;line-height:1.5;">单文件（JPEG + 文件末尾特殊标记） · 未经实机验证</div>
+          <div style="font-size:16px;font-weight:600;color:var(--text);">华为 / 荣耀</div>
+          <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">单文件（JPEG + 文件末尾特殊标记） · 未经实机验证</div>
         </div>
-        <span style="flex-shrink:0;background:rgba(255,149,0,0.16);color:#b25000;font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">⚠ 理论支持</span>
+        <span style="flex-shrink:0;background:var(--warn-bg);color:var(--warn-text);font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">⚠ 理论支持</span>
       </div>
 
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:0.5px solid rgba(0,0,0,0.08);">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:0.5px solid var(--border);">
         <div>
-          <div style="font-size:16px;font-weight:600;color:#1d1d1f;">iPhone</div>
-          <div style="font-size:13px;color:#86868b;margin-top:3px;line-height:1.5;">双文件（HEIC + MOV） · 独立存储，无法合成单文件</div>
+          <div style="font-size:16px;font-weight:600;color:var(--text);">iPhone</div>
+          <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">双文件（HEIC + MOV） · 独立存储，无法合成单文件</div>
         </div>
-        <span style="flex-shrink:0;background:rgba(255,59,48,0.13);color:#d70015;font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">✗ 不支持</span>
+        <span style="flex-shrink:0;background:var(--no-bg);color:var(--no-text);font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">✗ 不支持</span>
       </div>
 
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;">
         <div>
-          <div style="font-size:16px;font-weight:600;color:#1d1d1f;">vivo OriginOS</div>
-          <div style="font-size:13px;color:#86868b;margin-top:3px;line-height:1.5;">双文件（JPG + MP4） · 独立存储，无法合成单文件</div>
+          <div style="font-size:16px;font-weight:600;color:var(--text);">vivo OriginOS</div>
+          <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">双文件（JPG + MP4） · 独立存储，无法合成单文件</div>
         </div>
-        <span style="flex-shrink:0;background:rgba(255,59,48,0.13);color:#d70015;font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">✗ 不支持</span>
+        <span style="flex-shrink:0;background:var(--no-bg);color:var(--no-text);font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">✗ 不支持</span>
       </div>
     </div>
 
-    <div style="margin-top:16px;background:rgba(0,113,227,0.10);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-radius:14px;padding:14px 16px;font-size:13.5px;line-height:1.6;color:#00408c;animation:rise .5s .3s cubic-bezier(.22,.61,.36,1) both;">
+    <div style="margin-top:16px;background:var(--tip-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-radius:14px;padding:14px 16px;font-size:13.5px;line-height:1.6;color:var(--tip-text);animation:rise .5s .3s cubic-bezier(.22,.61,.36,1) both;">
       <strong style="font-weight:600;">提示</strong> · 必须保存原图才能被设备识别为动态照片；保存压缩图会丢失视频数据，只能看到静态图片。请确保您的设备支持查看实况图片。
     </div>
   </div>
@@ -101,7 +139,7 @@
       src: url("https://aka.doubaocdn.com/s/c4uVBo5qll") format("truetype");
       font-display: swap;
     }
-    @keyframes rise { from { opacity:0; transform:translateY(8px);} to { opacity:1; transform:none;} }
+    @keyframes rise { from { opacity:1; transform:translateY(8px);} to { opacity:1; transform:none;} }
     @keyframes floatBlue {
       from { transform:translate(0,0) scale(1); }
       to   { transform:translate(60px,40px) scale(1.12); }

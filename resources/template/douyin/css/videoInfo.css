@@ -227,36 +227,6 @@ body.dark-mode .stats-grid div {
   mix-blend-mode: difference;
 }
 
-/* ---------- 配额提示 ---------- */
-.quota-hint {
-  margin-top: 26px;
-  padding: 16px 24px;
-  border-radius: 14px;
-  background: rgba(128, 128, 128, 0.12);
-  color: #ffffff;
-  font-size: 26px;
-  font-weight: 600;
-  text-align: center;
-  mix-blend-mode: difference;
-}
-
-body.dark-mode .quota-hint {
-  background: rgba(255, 255, 255, 0.07);
-}
-
-/* ---------- 超额强制解析提示 ---------- */
-.force-hint {
-  margin-top: 16px;
-  background: rgba(255, 140, 0, 0.14);
-  border: 2px dashed rgba(255, 140, 0, 0.55);
-  color: #ffffff;
-}
-
-body.dark-mode .force-hint {
-  background: rgba(255, 140, 0, 0.22);
-  color: #ffffff;
-}
-
 /* ---------- 配额达上限，已使用数字标红 ---------- */
 .quota-used-over {
   mix-blend-mode: normal;
@@ -363,4 +333,43 @@ body.dark-mode .quota-used-over {
 /* ---------- 深色模式：次要信息改用浅灰，保证深浅场景均清晰 ---------- */
 body.dark-mode :is(.subline, .dy-id, .music-title, .music-author, .owner-id, .owner-stat, .brand) {
   color: rgba(255, 255, 255, 0.82);
+}
+
+/* ---------- 体积超限提示条（橙色虚线方框） ---------- */
+.size-exceed-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  max-width: 100%;
+  margin: 16px auto 0;
+  padding: 14px 26px;
+  border-radius: 8px;
+  background: rgba(255, 140, 0, 0.10);
+  border: 1px dashed rgba(217, 119, 6, 0.60);
+  font-size: 28px;
+  color: #d97706;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.size-exceed-hint .se-kbd {
+  color: #b25e00;
+  background: rgba(255, 140, 0, 0.16);
+  border: 1px dashed rgba(217, 119, 6, 0.50);
+  padding: 3px 10px;
+  border-radius: 5px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+body.dark-mode .size-exceed-hint {
+  background: rgba(255, 150, 0, 0.12);
+  border-color: rgba(255, 170, 60, 0.45);
+  color: #ffb054;
+}
+body.dark-mode .size-exceed-hint .se-kbd {
+  color: #ffd49a;
+  background: rgba(255, 150, 0, 0.16);
+  border-color: rgba(255, 170, 60, 0.40);
 }

@@ -10,9 +10,6 @@ import { Render } from './Render.js'
 import Version from './Version.js'
 import Config from './Config.js'
 import Common from './Common.js'
-import { addUsedBytes, canForceParse, isDownloadBlocked, isUploadBlocked, isMaster, isMasterExempt, getQuotaInfo } from './quota.js'
-
-export { getQuotaInfo }
 import axios from 'axios'
 import fs from 'fs'
 
@@ -505,13 +502,6 @@ export const uploadFile = async (e, file, videoUrl, options) => {
   const useGroupFile = Config.upload?.usegroupfile && newFileSize > (Config.upload.groupfilevalue || 100)
   if (options) options.useGroupFile = useGroupFile
 
-  // 每日上传配额：本次上传将超过当日上传限额时，停止发送视频，仅保留已生成的信息图（主人恒放行，强制解析权限者可放行）
-  // 注意：newFileSize 为 MB 值，配额统计内部按字节计算，需换算为字节再判断
-  if (isUploadBlocked(newFileSize * 1024 * 1024) && !canForceParse(e) && !isMaster(e)) {
-    logger.warn('当日上传配额已用尽，跳过视频发送，仅解析信息图')
-    return false
-  }
-
   // 文件处理
   let File
   const useBase64Video = Config.upload.videoSendMode === 'base64' || Config.upload.sendbase64
@@ -539,7 +529,6 @@ export const uploadFile = async (e, file, videoUrl, options) => {
           : ['LagrangeCore', 'OneBotv11', 'Lagrange.OneBot'].includes(botAdapter)
             ? target.sendFile?.(File)
             : target.sendMsg?.(segment.file(File)))
-        if (!isMasterExempt(e)) addUsedBytes('upload', newFileSize * 1024 * 1024)
         return true
       })
     } else {
@@ -551,7 +540,6 @@ export const uploadFile = async (e, file, videoUrl, options) => {
               ? await target?.sendMsg(segment.video(File) || videoUrl)
               : await e.reply(segment.video(File) || videoUrl)
             const ok = !!status?.message_id
-            if (ok && !isMasterExempt(e)) addUsedBytes('upload', newFileSize * 1024 * 1024)
             return ok
           } catch (error) {
             // EBUSY：NapCat 同视频缩略图并发撞锁；rich media transfer failed：QQ 富媒体上传瞬时失败/风控——两者都可短重试
@@ -582,8 +570,6 @@ export const uploadFile = async (e, file, videoUrl, options) => {
  * @returns {Promise<boolean>}
  */
 export const downloadVideo = async (e, downloadOpt, uploadOpt) => {
-  // 传递发送者给 downloadFile，供主人豁免配额统计判断
-  downloadOpt = { ...downloadOpt, e }
   // 获取文件大小（仅用于大小限制判断，失败不阻断后续发送）
   let fileSize = 0
   let fileSizeInMB = '0.00'
@@ -630,8 +616,7 @@ export const downloadVideo = async (e, downloadOpt, uploadOpt) => {
       title: Config.app.removeCache ? (downloadOpt.title.timestampTitle || 'temp') : processFilename(downloadOpt.title.originTitle || 'video', 50),
       headers,
       isLiveStream: downloadOpt.isLiveStream,
-      liveStreamMaxSize: downloadOpt.liveStreamMaxSize,
-      e: downloadOpt.e
+      liveStreamMaxSize: downloadOpt.liveStreamMaxSize
     }
   }
 
@@ -642,9 +627,9 @@ export const downloadVideo = async (e, downloadOpt, uploadOpt) => {
 
   if (urlSent) {
     logger.mark(`视频大小 (${fileSizeInMB} MB) 已通过URL发送，跳过本地下载`)
-    // URL 直发无本地上传/下载消耗，其后台写缓存下载也不计入配额（noQuota），仅供后续群复用
+    // URL 直发成功，后台预下载写缓存供后续同视频群复用
     if (cacheKey && !getCachedVideo(cacheKey)) {
-      runSingleFlight(cacheKey, () => downloadFile(downloadOpt.video_url, { ...buildDownloadOpt(), noQuota: true }))
+      runSingleFlight(cacheKey, () => downloadFile(downloadOpt.video_url, buildDownloadOpt()))
         .then(downloaded => {
           const cached = { filepath: downloaded.filepath, totalBytes: Number((downloaded.totalBytes / (1024 * 1024)).toFixed(2)) }
           setCachedVideo(cacheKey, cached)
@@ -654,26 +639,19 @@ export const downloadVideo = async (e, downloadOpt, uploadOpt) => {
     return true
   }
 
-  // 每日下载配额：仅当本次需要真实本地下载时检查；URL 直发已成功则无下载消耗，不受配额拦截
-  if (isDownloadBlocked(fileSizeContent) && !canForceParse(e) && !isMaster(e)) {
-    logger.warn('当日下载配额已用尽，跳过视频下载，仅解析信息图')
-    return false
-  }
-
   // 下载文件（同一视频二次转发时复用已下载文件，避免重复平台请求与重复下载）
-  // 缓存命中（复用文件）说明本次无真实网络下载，故不计入下载配额，仅由 uploadFile 计入上传
   let res
   if (cacheKey) {
     const cached = getCachedVideo(cacheKey)
     if (cached) {
       res = { filepath: cached.filepath, totalBytes: cached.totalBytes, ...downloadOpt.title }
-      logger.debug(`[配额][缓存命中] ${cacheKey} 复用已下载文件，不计下载配额`)
+      logger.debug(`[缓存命中] ${cacheKey} 复用已下载文件`)
     } else {
       const downloaded = await runSingleFlight(cacheKey, () => downloadFile(downloadOpt.video_url, buildDownloadOpt()))
       res = { ...downloaded, ...downloadOpt.title }
       res.totalBytes = Number((res.totalBytes / (1024 * 1024)).toFixed(2))
       setCachedVideo(cacheKey, { filepath: res.filepath, totalBytes: res.totalBytes })
-      logger.debug(`[配额][真实下载] ${cacheKey} 未命中缓存，已真实下载并计入下载配额`)
+      logger.debug(`[真实下载] ${cacheKey} 未命中缓存，已真实下载`)
     }
   } else {
     res = await downloadFile(downloadOpt.video_url, buildDownloadOpt())
@@ -743,8 +721,6 @@ export const downloadFile = async (videoUrl, opt) => {
     isLiveStream: opt.isLiveStream,
     liveStreamMaxSize: opt.liveStreamMaxSize
   })
-
-  if (typeof totalBytes === 'number' && Number.isFinite(totalBytes) && totalBytes > 0 && !opt?.noQuota && !isMasterExempt(opt?.e)) addUsedBytes('download', totalBytes)
 
   return { filepath, totalBytes }
 }

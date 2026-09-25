@@ -455,6 +455,8 @@ export const loopVideoWithTransition = async (options) => {
  * const success = await exec('npm test', { booleanResult: true });
  */
 const exec = (argv, options) => {
+  // 兼容字符串命令：先拆分成 [file, ...args]，避免 argv[0]/argv.slice(1) 按字符串索引处理得到残缺命令
+  if (typeof argv === 'string') argv = argv.trim().split(/\s+/)
   return new Promise((resolve) => {
     // 打印执行日志（如果启用）
     if (options?.log) {

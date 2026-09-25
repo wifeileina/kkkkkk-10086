@@ -34,6 +34,10 @@
     </div>
     {{/if}}
 
+    {{if video && video.sizeExceeded}}
+    <div class="size-exceed-hint">体积超限，继续下载请引用回复：<span class="se-kbd">xk解析</span></div>
+    {{/if}}
+
     {{if showStats}}
     <section class="stats-grid">
       <div><strong>{{statistics.digg_count}}</strong><span>点赞</span></div>
@@ -41,12 +45,6 @@
       <div><strong>{{statistics.collect_count}}</strong><span>收藏</span></div>
       <div><strong>{{statistics.share_count}}</strong><span>分享</span></div>
     </section>
-    {{if quotaInfo && quotaInfo.enabled}}
-    <div class="quota-hint">{{@quotaInfo.text}}</div>
-    {{/if}}
-    {{if quotaInfo && quotaInfo.showForceHint}}
-    <div class="quota-hint force-hint">继续下载指令：xk解析  权限:{{quotaInfo.forcePermissionLabel}}</div>
-    {{/if}}
     {{/if}}
 
     {{if music}}

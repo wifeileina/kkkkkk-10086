@@ -21,9 +21,10 @@ import { newInjectedPage } from 'fingerprint-injector'
 const DOUYIN_HOME = 'https://www.douyin.com/'
 
 /**
- * 全局浏览器解析串行闸。
- * 不同群并发解析不同作品时，若各自 launch 一个 Chromium，多实例叠加会是内存峰值爆掉的根因
- * （本机内存很小）。因此同一时刻只允许一个解析浏览器存活，其余请求排队等待。
+ * 全局浏览器解析串行闸（防风控）。
+ * 同一时刻只允许一个浏览器解析存活，其余请求排队等待。
+ * 设计上：一个完成解析后，其余同作品直接复用缓存数据/文件发送，而非各自重复请求平台接口，
+ * 从而避免多群并发重复请求被抖音限流静默失败。
  */
 let browserGate = Promise.resolve()
 const runExclusive = (task) => {
@@ -132,15 +133,19 @@ const fetchDetailInPage = (page, awemeId) => page.evaluate(async (awemeId) => {
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 
+/** 当前正在进行的浏览器解析数（用于并发时避免关闭仍被他人使用的共享浏览器） */
+let activeBrowserParses = 0
+
 /**
  * 通过无头浏览器获取完整 aweme_detail（携带 UIFID，可绕过 Argus 风控）。
  * 失败或超时时抛出异常，由上层降级到分享页解析。
  * 全程走「全局串行闸 + 浏览器单例 + 闲置自动退出」，同一时刻仅一个 Chromium 存活，
- * 避免多群并发各自 launch 导致内存峰值崩溃。
+ * 多群并发仅浏览器取数串行，其余复用缓存数据/文件发送，避免限流与内存峰值。
  * @param {string} awemeId 作品 ID
  * @returns {Promise<{ data: { aweme_detail: Object } }>}
  */
 export const fetchDouyinDetailViaBrowser = (awemeId) => runExclusive(async () => {
+  activeBrowserParses++
   const browser = await getSharedBrowser()
   let page
   try {
@@ -168,13 +173,15 @@ export const fetchDouyinDetailViaBrowser = (awemeId) => runExclusive(async () =>
 
     return { data: { aweme_detail: result.detail } }
   } catch (error) {
-    // 页面或请求异常时，关闭并置空单例，下次重置新浏览器，避免复用坏实例
-    if (sharedBrowser) {
+    // 页面或请求异常时：仅当没有其他解析正共用同一浏览器（无并发），才关闭并置空单例，
+    // 避免连累其他并发任务；并发场景下交给闲置计时自动回收及下次复用前的健壮性保障。
+    if (activeBrowserParses === 1 && sharedBrowser) {
       await sharedBrowser.close().catch(() => {})
       sharedBrowser = null
     }
     throw error
   } finally {
+    activeBrowserParses--
     try { if (page) await page.close().catch(() => {}) } catch { /* 忽略 */ }
     // 本次解析结束，进入闲置倒计时；有新任务会取消它复用同一浏览器
     scheduleBrowserClose()

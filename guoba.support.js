@@ -430,12 +430,6 @@ const schemas = [
   sw('xiaohongshu.volumePriority', '体积优先', '设置具体画质档位时，若该档位体积超过体积上限则自动下调到能发出的档位'),
 
   group('上传配置'),
-  group('配额限制'),
-  sw('upload.quota.enable', '启用每日流量配额', '开启后按每日限额控制上传/下载流量，超限仅解析信息图，不再下载/发送视频'),
-  num('upload.quota.downloadLimit', '每日下载配额', 0, 114514, 'MB', '每天最多下载的视频总流量，超限后不再下载视频，仅出信息图；0 表示不限制'),
-  num('upload.quota.uploadLimit', '每日上传配额', 0, 114514, 'MB', '每天最多上传的视频总流量，超限后不再发送视频，仅出信息图；0 表示不限制'),
-  radio('upload.quota.forcePermission', '超额强制解析权限', permissionOptions, '配额超限后，拥有该权限的人仍可正常下载/发送视频；设为「主人」时信息图不显示强制提示，设为其他等级时会在信息图提示「继续下载指令：xk解析」'),
-  sw('upload.quota.masterExempt', '主人不计入配额', '主人(机器人主人)超限时始终可正常解析下载；开启后主人的流量不参与配额统计，关闭则主人的流量计入统计但主人仍不被拦截'),
   divider('上传与下载'),
   sw('upload.sendbase64', '转换 base64 发送', '适合云崽与机器人不在同一网络环境时开启'),
   radio('upload.videoSendMode', '本地视频发送方式', [
