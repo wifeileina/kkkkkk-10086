@@ -1,0 +1,2080 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小卡解析</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #f5f7fa;
+  --bg-tint: rgba(37, 99, 235, .055);
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #f1f4f8;
+
+  --line: #e8ebf1;
+  --line-2: #d9dee8;
+  --line-3: #c6cdda;
+
+  --text: #1a1f2b;
+  --text-2: #5a6577;
+  --text-3: #8e98a8;
+  --text-4: #b4bcc8;
+
+  --accent: #2563eb;
+  --accent-2: #1d4ed8;
+  --accent-3: #3b82f6;
+  --accent-soft: #eff4ff;
+  --accent-line: #c8dafd;
+  --accent-ring: rgba(37, 99, 235, .17);
+
+  --ok: #0f9d63;
+  --ok-soft: #e9f8f1;
+  --danger: #dc2626;
+  --danger-soft: #fef3f2;
+  --warn: #c2740a;
+
+  --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .04);
+  --shadow-md: 0 4px 12px -2px rgba(16, 24, 40, .08), 0 2px 6px -1px rgba(16, 24, 40, .04);
+  --shadow-lg: 0 12px 32px -8px rgba(16, 24, 40, .16), 0 2px 8px -2px rgba(16, 24, 40, .06);
+}
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  min-height: 100vh;
+  background-color: var(--bg);
+  background-image: radial-gradient(900px 320px at 50% -140px, var(--bg-tint), transparent 70%);
+  background-repeat: no-repeat;
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.6;
+  padding-bottom: 110px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── 顶栏 ── */
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(255, 255, 255, .82);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, .03);
+}
+.topbar-inner {
+  max-width: 940px; margin: 0 auto; padding: 0 20px;
+  height: 58px; display: flex; align-items: center; gap: 14px;
+}
+.brand { display: flex; align-items: center; gap: 9px; flex-shrink: 0; }
+.brand-mark {
+  width: 24px; height: 24px; border-radius: 7px;
+  background: linear-gradient(160deg, var(--accent-3), var(--accent-2));
+  color: #fff; font-size: 10px; font-weight: 700; line-height: 1;
+  display: grid; place-items: center;
+  box-shadow: 0 2px 6px -1px rgba(37, 99, 235, .45);
+}
+.brand-name { font-size: 14px; font-weight: 600; letter-spacing: .01em; white-space: nowrap; }
+
+.tabs {
+  display: flex; gap: 2px; padding: 3px;
+  background: var(--surface-3); border-radius: 10px;
+  border: 1px solid var(--line); overflow-x: auto;
+}
+.tab {
+  border: none; background: transparent; font-family: inherit;
+  padding: 6px 11px; border-radius: 7px;
+  font-size: 13px; color: var(--text-2); cursor: pointer;
+  transition: background .15s, color .15s, box-shadow .15s;
+  white-space: nowrap; -webkit-tap-highlight-color: transparent;
+}
+.tab:hover { color: var(--text); }
+.tab.active {
+  background: var(--surface); color: var(--accent-2); font-weight: 600;
+  box-shadow: var(--shadow-sm), 0 0 0 1px var(--accent-line);
+}
+
+.conn {
+  margin-left: auto; display: flex; align-items: center; gap: 7px;
+  font-size: 12px; color: var(--text-2); white-space: nowrap; flex-shrink: 0;
+  background: var(--surface); border: 1px solid var(--line);
+  padding: 4px 10px; border-radius: 20px;
+}
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-4); flex-shrink: 0; }
+.status-dot.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.status-dot.err { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+
+/* ── 主体 ── */
+.page { max-width: 940px; margin: 0 auto; padding: 18px 20px 0; }
+.page-head { margin-bottom: 14px; }
+.page-head h1 { font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+.page-sub { font-size: 13px; color: var(--text-2); margin-top: 2px; }
+
+.panel { display: none; }
+.panel.active { display: block; animation: fade .22s ease; }
+@keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ── 分组卡片 ── */
+.group {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: var(--shadow-sm);
+  margin-bottom: 9px; overflow: hidden;
+}
+.group-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+}
+.group-head h2 { font-size: 13.5px; font-weight: 600; }
+.group-head .btn { margin-left: auto; }
+/* 标题行右侧工具区：时间维度分段 + 操作按钮同排 */
+.group-head .head-tools { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.group-head .head-tools .btn { margin-left: 0; }
+.group-note {
+  padding: 8px 16px; font-size: 12px; color: var(--text-2);
+  background: var(--accent-soft); border-bottom: 1px solid var(--accent-line);
+}
+.group-note code {
+  font-family: var(--mono); font-size: 11px;
+  background: rgba(37, 99, 235, .1); padding: 1px 5px; border-radius: 4px;
+}
+.rows { padding: 2px 16px 10px; }
+
+/* 排行榜分组小标题（群组 / 个人） */
+.rank-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px 0;
+  font-size: 12px; font-weight: 600; color: var(--text-2);
+}
+.rank-head::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+/* 连续开关组成的紧凑网格：多列排布提升密度；每格仍是「标签在上、控件在下」，与分组内开关一致 */
+.swgrid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 0 22px; align-items: stretch;
+}
+.swgrid > .inline-cell { padding: 7px 0; border-bottom: 1px dashed var(--line); }
+
+/* 语义分组行：同一行放若干「含义相关」的字段，等宽等高、控件底部对齐 */
+.field.inline { display: grid; gap: 12px 20px; align-items: stretch; }
+.field.inline.cols-1 { grid-template-columns: minmax(0, 1fr); }
+.field.inline.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.field.inline.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.field.inline.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.inline-cell { min-width: 0; display: flex; flex-direction: column; }
+.inline-label { display: block; font-size: 12.5px; font-weight: 500; color: var(--text); }
+.inline-hint { font-size: 11px; color: var(--text-3); line-height: 1.5; margin-top: 2px; }
+.inline-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; margin-top: auto; padding-top: 6px; }
+/* 内联行里的子列：让「跟在后面」的若干字段在同一格内继续并排 */
+.inline-sub { display: grid; gap: 12px 20px; align-items: stretch; min-width: 0; }
+.inline-sub.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.inline-sub.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.inline-sub.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+/* 总览「运行状态」：键值对多列排布 */
+.rows.grid-status { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0 20px; }
+.rows.grid-status > .field { align-items: center; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+.rows.grid-status > .field > .field-label { flex: 0 0 104px; padding-top: 0; }
+.rows.grid-status > .field.full { grid-column: 1 / -1; }
+
+/* ── 字段行 ── */
+.field {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 7px 0; border-bottom: 1px dashed var(--line);
+}
+.field:last-child { border-bottom: none; }
+.field > .field-label { flex: 0 0 178px; min-width: 0; padding-top: 2px; }
+.field > .field-label label { font-size: 13px; font-weight: 500; color: var(--text); display: block; }
+.field .hint { font-size: 11.5px; color: var(--text-3); line-height: 1.5; margin-top: 2px; }
+.field > .ctl { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.field.stack { flex-direction: column; gap: 8px; }
+.field.stack > .field-label { flex: none; }
+
+/* 子表单内的开关：标签占满，开关右对齐（顶层开关一律走单元格样式） */
+.field.sw > .field-label { flex: 1 1 auto; min-width: 0; }
+.field.sw > .ctl { flex: 0 0 auto; }
+
+/* ── 开关 ── */
+.toggle {
+  position: relative; width: 42px; height: 24px; flex-shrink: 0;
+  background: var(--line-3); border-radius: 20px; cursor: pointer;
+  transition: background .18s; -webkit-tap-highlight-color: transparent;
+}
+.toggle::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 20px; height: 20px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, .22);
+  transition: transform .18s;
+}
+.toggle.on { background: var(--accent); }
+.toggle.on::after { transform: translateX(18px); }
+
+/* ── 输入控件 ── */
+.inp {
+  flex: 1 1 220px; min-width: 0; font-family: inherit; font-size: 13px;
+  color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--line-2); border-radius: 8px;
+  padding: 7px 11px; outline: none; transition: border-color .15s, box-shadow .15s;
+}
+.inp:focus { border-color: var(--accent-3); box-shadow: 0 0 0 3px var(--accent-ring); background: var(--surface); }
+.inp.mono { font-family: var(--mono); font-size: 12px; }
+.num-wrap { display: flex; align-items: center; gap: 7px; flex: 1 1 220px; min-width: 0; }
+.num-wrap .inp { flex: 0 0 110px; }
+.num-wrap .addon { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+
+/* 密码类输入：右侧小眼睛切换明文 */
+.pwd-wrap { position: relative; display: flex; align-items: center; flex: 1 1 260px; min-width: 0; }
+.pwd-wrap .inp { flex: 1 1 auto; padding-right: 36px; }
+.pwd-wrap .eye {
+  position: absolute; right: 5px; width: 26px; height: 26px;
+  display: grid; place-items: center; border: none; border-radius: 6px;
+  background: transparent; color: var(--text-3); cursor: pointer;
+  transition: color .15s, background .15s; -webkit-tap-highlight-color: transparent;
+}
+.pwd-wrap .eye:hover { color: var(--text); background: var(--surface-3); }
+.pwd-wrap .eye.on { color: var(--accent-2); }
+.pwd-wrap .eye svg { width: 15px; height: 15px; display: block; }
+
+select.inp { cursor: pointer; }
+
+/* ── 分段单选 ── */
+.seg { display: flex; flex-wrap: wrap; gap: 4px; padding: 3px; background: var(--surface-3); border: 1px solid var(--line); border-radius: 9px; }
+.seg-btn {
+  border: none; background: transparent; font-family: inherit; font-size: 12.5px;
+  color: var(--text-2); padding: 5px 11px; border-radius: 6px; cursor: pointer;
+  transition: background .15s, color .15s; -webkit-tap-highlight-color: transparent; white-space: nowrap;
+}
+.seg-btn:hover { color: var(--text); }
+.seg-btn.on { background: var(--surface); color: var(--accent-2); font-weight: 600; box-shadow: var(--shadow-sm), 0 0 0 1px var(--accent-line); }
+
+/* ── 标签 / 多选 ── */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 100%; align-items: center; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; padding: 4px 9px; border-radius: 7px;
+  background: var(--surface-3); border: 1px solid var(--line-2); color: var(--text-2);
+  cursor: pointer; user-select: none; transition: all .15s;
+}
+.chip:hover { border-color: var(--line-3); color: var(--text); }
+.chip.on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-2); font-weight: 600; }
+.chip .x { font-size: 13px; line-height: 1; opacity: .55; }
+.chip .x:hover { opacity: 1; color: var(--danger); }
+.chips .tag-add {
+  font-family: inherit; font-size: 12px; width: 130px;
+  background: var(--surface-2); border: 1px dashed var(--line-2);
+  border-radius: 7px; padding: 4px 9px; outline: none; color: var(--text);
+}
+.chips .tag-add:focus { border-color: var(--accent-3); border-style: solid; }
+
+/* ── 表情可视化选择器 ── */
+.emoji-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1 1 100%; min-width: 0; }
+.emoji-sel { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.emoji-pick-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 7px 3px 4px; border-radius: 8px;
+  background: var(--accent-soft); border: 1px solid var(--accent-line);
+  color: var(--accent-2); font-size: 12px; font-weight: 500; white-space: nowrap;
+}
+.emoji-pick-chip .pic { width: 18px; height: 18px; display: grid; place-items: center; flex-shrink: 0; }
+.emoji-pick-chip .pic img { width: 18px; height: 18px; object-fit: contain; display: block; }
+.emoji-pick-chip .pic .glyph { font-size: 14px; line-height: 18px; }
+.emoji-pick-chip .pic .unknown { font-family: var(--mono); font-size: 10px; color: var(--text-3); }
+.emoji-pick-chip .x { font-size: 13px; line-height: 1; opacity: .55; cursor: pointer; }
+.emoji-pick-chip .x:hover { opacity: 1; color: var(--danger); }
+.emoji-empty { font-size: 12px; color: var(--text-4); }
+
+.emoji-mask { position: fixed; inset: 0; z-index: 90; background: rgba(16, 24, 40, .38); display: none; }
+.emoji-mask.show { display: block; }
+.emoji-modal {
+  position: fixed; z-index: 91; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(660px, calc(100vw - 28px)); max-height: min(640px, calc(100vh - 56px));
+  display: none; flex-direction: column; overflow: hidden;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-lg);
+}
+.emoji-modal.show { display: flex; }
+.emoji-modal-head { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
+.emoji-modal-head h3 { font-size: 14px; font-weight: 600; color: var(--text); }
+.emoji-modal-head .sub { font-size: 11.5px; color: var(--text-3); }
+.emoji-modal-head .close {
+  margin-left: auto; border: none; background: transparent; font-family: inherit; font-size: 19px; line-height: 1;
+  color: var(--text-3); cursor: pointer; padding: 2px 7px; border-radius: 7px; transition: all .15s;
+}
+.emoji-modal-head .close:hover { background: var(--surface-3); color: var(--text); }
+.emoji-tabs { display: flex; flex-wrap: wrap; gap: 5px; padding: 11px 16px 0; }
+.emoji-tab {
+  font-family: inherit; font-size: 12px; padding: 4px 11px; border-radius: 999px; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--line-2); color: var(--text-2);
+  transition: all .15s; -webkit-tap-highlight-color: transparent; white-space: nowrap;
+}
+.emoji-tab:hover { border-color: var(--line-3); color: var(--text); }
+.emoji-tab.on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-2); font-weight: 600; }
+.emoji-search-row { padding: 10px 16px; }
+.emoji-search { width: 100%; flex: 1 1 100%; }
+.emoji-body { padding: 0 16px 14px; overflow-y: auto; min-height: 120px; }
+.emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 6px; }
+.emoji-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 7px 4px 5px; border: 1px solid transparent; border-radius: 9px;
+  background: var(--surface-2); cursor: pointer; transition: all .13s; -webkit-tap-highlight-color: transparent;
+}
+.emoji-tile:hover { background: var(--surface-3); border-color: var(--line-3); }
+.emoji-tile.on { background: var(--accent-soft); border-color: var(--accent-line); box-shadow: 0 0 0 1px var(--accent-line); }
+.emoji-tile .pic { width: 26px; height: 26px; display: grid; place-items: center; }
+.emoji-tile .pic img { width: 26px; height: 26px; object-fit: contain; display: block; }
+.emoji-tile .pic .glyph { font-size: 21px; line-height: 26px; }
+.emoji-tile .pic .unknown { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+.emoji-tile .nm { font-size: 10.5px; color: var(--text-2); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.emoji-tile.on .nm { color: var(--accent-2); font-weight: 600; }
+.emoji-modal-foot { display: flex; align-items: center; gap: 8px; padding: 11px 16px; border-top: 1px solid var(--line); background: var(--surface-2); }
+.emoji-modal-foot .inp { flex: 0 0 132px; }
+.emoji-modal-foot .spacer { margin-left: auto; }
+.emoji-modal-foot .count { font-size: 12px; color: var(--text-3); }
+
+/* ── 子表单 ── */
+.subform { display: flex; flex-direction: column; gap: 8px; flex: 1 1 100%; }
+.subcard {
+  border: 1px solid var(--line-2); border-radius: 11px;
+  background: var(--surface-2); overflow: hidden;
+}
+.subcard-head {
+  display: flex; align-items: center; gap: 9px;
+  padding: 9px 13px; border-bottom: 1px solid var(--line);
+  background: var(--surface); font-size: 12.5px; font-weight: 600;
+}
+.subcard-head .idx {
+  font-family: var(--mono); font-size: 11px; color: var(--accent-2);
+  background: var(--accent-soft); border: 1px solid var(--accent-line);
+  padding: 0 6px; border-radius: 5px;
+}
+.subcard-head .rm { margin-left: auto; }
+.subcard-body { padding: 2px 13px 8px; }
+/* 仅横向字段用固定标签宽；stack（标签框/子表单）为纵向布局，固定 flex-basis 会被当成高度撑出大片空白 */
+.subcard-body .field:not(.stack) > .field-label { flex: 0 0 150px; }
+.subcard-body .field { padding: 6px 0; }
+
+/* ── 按钮 ── */
+.btn {
+  font-family: inherit; font-size: 12.5px; font-weight: 500;
+  color: var(--text); background: var(--surface);
+  border: 1px solid var(--line-2); border-radius: 8px;
+  padding: 6px 13px; cursor: pointer; transition: all .15s;
+  -webkit-tap-highlight-color: transparent; white-space: nowrap;
+}
+.btn:hover { border-color: var(--line-3); background: var(--surface-2); }
+.btn:active { transform: translateY(1px); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn-primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+.btn-danger { background: var(--danger-soft); border-color: #f7cfcb; color: var(--danger); font-weight: 600; }
+.btn-danger:hover { background: #fde8e6; border-color: #f2b8b3; }
+.btn-mini { padding: 3px 9px; font-size: 11.5px; border-radius: 6px; }
+
+/* ── 保存栏 ── */
+.savebar {
+  position: fixed; left: 0; right: 0; bottom: 16px; z-index: 60;
+  display: flex; align-items: center; gap: 12px;
+  width: calc(100% - 32px); max-width: 940px; margin: 0 auto; padding: 12px 18px;
+  background: rgba(255, 255, 255, .92);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  transform: translateY(calc(100% + 24px)); transition: transform .24s ease;
+}
+.savebar.show { transform: none; }
+.savebar .dirty { font-size: 12.5px; color: var(--warn); font-weight: 500; }
+.savebar .spacer { margin-left: auto; }
+
+/* ── 统计 ── */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 11px; }
+.stat-card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 12px; padding: 11px 14px; box-shadow: var(--shadow-sm);
+}
+.stat-card .k { font-size: 11.5px; color: var(--text-3); }
+.stat-card .v { font-size: 20px; font-weight: 700; letter-spacing: -.02em; margin-top: 1px; font-family: var(--mono); }
+.stat-card .v small { font-size: 12px; font-weight: 500; color: var(--text-3); font-family: var(--sans); margin-left: 3px; }
+
+/* 宽屏下「平台解析量」与「近 14 天趋势」并排；趋势列多，给它更多横向空间 */
+.overview-duo { display: grid; gap: 11px; align-items: start; margin-bottom: 11px; }
+@media (min-width: 880px) { .overview-duo { grid-template-columns: 1fr 1.4fr; } }
+.overview-duo > .group { margin-bottom: 0; }
+
+.bar-row { display: flex; align-items: center; gap: 11px; padding: 6px 0; }
+.bar-row .name { flex: 0 0 74px; font-size: 12.5px; color: var(--text-2); }
+.bar-row .track { flex: 1 1 auto; height: 9px; background: var(--surface-3); border-radius: 6px; overflow: hidden; }
+.bar-row .fill { display: block; height: 100%; border-radius: 6px; background: linear-gradient(90deg, var(--accent-3), var(--accent-2)); transition: width .5s ease; }
+.bar-row .num { flex: 0 0 98px; display: flex; align-items: baseline; justify-content: flex-end; gap: 7px; font-family: var(--mono); color: var(--text-2); }
+.bar-row .num b { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.bar-row .num i { font-style: normal; font-size: 11px; color: var(--text-3); min-width: 44px; text-align: right; }
+
+.trend { display: flex; align-items: flex-end; gap: 2px; height: 108px; padding: 4px 2px 0; }
+.trend .col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 5px; height: 100%; }
+.trend .stack { width: 100%; display: flex; flex-direction: column; justify-content: flex-end; border-radius: 5px 5px 2px 2px; overflow: hidden; background: var(--surface-3); }
+.trend .seg-d { width: 100%; }
+.trend .lbl { font-size: 9px; letter-spacing: -.02em; color: var(--text-4); font-family: var(--mono); white-space: nowrap; }
+.trend .col:hover .lbl { color: var(--text-2); }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 9px; font-size: 11.5px; color: var(--text-2); }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 5px; vertical-align: middle; }
+
+/* 趋势柱状图：鼠标悬浮 / 触控长按提示（原生 title 在触屏不显示，这里统一自绘） */
+.chart-tip {
+  position: fixed; z-index: 70; pointer-events: none;
+  min-width: 124px; padding: 8px 10px; border-radius: 8px;
+  background: #1f2937; color: #f8fafc;
+  font-size: 11.5px; line-height: 1.5;
+  box-shadow: 0 10px 28px -8px rgba(15, 23, 42, .45);
+  opacity: 0; visibility: hidden; transition: opacity .12s ease;
+}
+.chart-tip.show { opacity: 1; visibility: visible; }
+.chart-tip .tt-date { font-family: var(--mono); font-weight: 600; margin-bottom: 4px; }
+.chart-tip .tt-row { display: flex; align-items: center; gap: 6px; }
+.chart-tip .tt-row i { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 2px; }
+.chart-tip .tt-row b { margin-left: auto; padding-left: 16px; font-family: var(--mono); font-weight: 600; }
+.chart-tip .tt-total { margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(255, 255, 255, .2); }
+
+.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table th {
+  text-align: left; font-size: 11.5px; font-weight: 600; color: var(--text-3);
+  padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.table td { padding: 6px 10px; border-bottom: 1px dashed var(--line); vertical-align: middle; }
+.table tr:last-child td { border-bottom: none; }
+.table .gname { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table .gid { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+.table .r { text-align: right; }
+
+/* 群组 / 个人排行双表：固定列宽，保证两表的 QQ 列与群号列纵向对齐 */
+.table.rank-table { table-layout: fixed; }
+.table.rank-table th { white-space: normal; }
+.table.rank-table .col-rank { width: 42px; }
+.table.rank-table .col-name { width: 46%; }
+.table.rank-table .col-id { width: 27%; }
+.table.rank-table .col-num { width: 27%; }
+.table.rank-table .gname { max-width: 100%; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; padding: 2px 9px; border-radius: 20px;
+  background: var(--surface-3); border: 1px solid var(--line-2); color: var(--text-2);
+}
+.badge.on { background: var(--ok-soft); border-color: #bfe8d4; color: var(--ok); }
+.badge.off { background: var(--danger-soft); border-color: #f7cfcb; color: var(--danger); }
+.badges { display: flex; flex-wrap: wrap; gap: 7px; }
+
+.empty { padding: 20px 16px; text-align: center; font-size: 13px; color: var(--text-3); }
+.search {
+  font-family: inherit; font-size: 12.5px; width: 190px;
+  background: var(--surface-2); border: 1px solid var(--line-2);
+  border-radius: 8px; padding: 5px 10px; outline: none; color: var(--text);
+}
+.search:focus { border-color: var(--accent-3); box-shadow: 0 0 0 3px var(--accent-ring); }
+
+/* ── 提示 ── */
+.toast {
+  position: fixed; left: 50%; bottom: 92px; transform: translate(-50%, 14px);
+  z-index: 90; font-size: 13px; padding: 9px 17px; border-radius: 10px;
+  background: var(--text); color: #fff; box-shadow: var(--shadow-lg);
+  opacity: 0; pointer-events: none; transition: opacity .22s, transform .22s;
+  max-width: 76vw;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.err { background: var(--danger); }
+.toast.ok { background: var(--ok); }
+
+/* ── 平台解析：侧面悬浮快速导航 ── */
+.side-nav { display: none; }
+.side-nav.show {
+  display: flex; flex-direction: column; gap: 2px;
+  position: fixed; top: 50%; right: max(18px, calc(50vw - 616px)); transform: translateY(-50%);
+  width: 128px; padding: 6px; z-index: 40;
+  background: rgba(255, 255, 255, .92);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: var(--shadow-md);
+}
+.side-nav-item {
+  border: none; background: transparent; font-family: inherit; text-align: left;
+  padding: 6px 9px; border-radius: 7px; font-size: 12.5px; color: var(--text-2);
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: background .15s, color .15s, box-shadow .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.side-nav-item:hover { background: var(--surface-3); color: var(--text); }
+.side-nav-item.active {
+  background: var(--accent-soft); color: var(--accent-2); font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* 视口不够宽时侧边放不下，改为吸附在顶栏下方的横向快捷条 */
+@media (max-width: 1260px) {
+  .side-nav.show {
+    position: sticky; top: 58px; right: auto; transform: none;
+    flex-direction: row; gap: 6px; width: auto; margin: 0 0 12px;
+    padding: 7px; overflow-x: auto; border-radius: 10px;
+  }
+  .side-nav-item { flex: 0 0 auto; }
+}
+
+@media (max-width: 720px) {
+  .topbar-inner { height: auto; flex-wrap: wrap; padding: 10px 16px; gap: 10px; }
+  .conn { margin-left: 0; }
+  .field { flex-direction: column; gap: 7px; }
+  .field > .field-label { flex: none; }
+  /* 竖屏字段一律纵向堆叠：固定标签宽（flex-basis）会被当成高度撑出大片空白，这里按选择器优先级统一重置 */
+  .rows.grid-status > .field { align-items: stretch; }
+  .rows.grid-status > .field > .field-label,
+  .subcard-body .field:not(.stack) > .field-label { flex: none; }
+  .swgrid, .rows.grid-status { grid-template-columns: 1fr; }
+  /* 子表单内的开关仍保持整行横向，避免窄屏下卡片被撑高 */
+  .field.sw { align-items: center; flex-direction: row; }
+  .field.inline { gap: 14px; }
+  .field.inline.cols-2, .field.inline.cols-3, .field.inline.cols-4 { grid-template-columns: 1fr; }
+  .inline-sub.cols-2, .inline-sub.cols-3, .inline-sub.cols-4 { grid-template-columns: 1fr; }
+  .inline-ctl { margin-top: 0; padding-top: 5px; }
+  .field > .field-label label { font-size: 12.5px; }
+  .page { padding: 18px 14px 0; }
+  .rows { padding: 4px 14px 12px; }
+  .group-head { padding: 12px 14px; flex-wrap: wrap; }
+  .group-head .head-tools { gap: 6px; }
+  .savebar { width: calc(100% - 24px); bottom: 12px; padding: 11px 14px; }
+  /* 顶栏会换行变高，吸顶会与之重叠，窄屏下退化为普通横向条 */
+  .side-nav.show { position: static; transform: none; margin: 0 0 12px; }
+  /* 表情选择器：弹窗铺满、网格收窄 */
+  .emoji-modal { width: calc(100vw - 20px); max-height: calc(100vh - 30px); }
+  .emoji-grid { grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); }
+  .emoji-modal-foot { flex-wrap: wrap; }
+  .emoji-modal-foot .inp { flex: 1 1 110px; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-mark">xk</span>
+      <span class="brand-name">小卡解析</span>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="overview">总览</button>
+      <button class="tab" data-tab="global">全局配置</button>
+      <button class="tab" data-tab="platform">平台解析</button>
+      <button class="tab" data-tab="push">推送配置</button>
+      <button class="tab" data-tab="upload">上传与请求</button>
+      <button class="tab" data-tab="advanced">高级设置</button>
+      <button class="tab" data-tab="groups">群组管理</button>
+    </nav>
+    <div class="conn">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusLabel">加载中</span>
+    </div>
+  </div>
+</header>
+
+<main class="page">
+  <div class="page-head">
+    <h1 id="pageTitle">总览</h1>
+    <p class="page-sub" id="pageSub">解析运行状态与统计数据</p>
+  </div>
+
+  <!-- 平台解析页的悬浮快速导航（其他页签自动隐藏） -->
+  <nav class="side-nav" id="sideNav"></nav>
+
+  <!-- 总览 -->
+  <section class="panel active" id="tab-overview">
+    <div class="stat-grid" id="statGrid"></div>
+
+    <div class="group">
+      <div class="group-head"><h2>运行状态</h2></div>
+      <div class="rows grid-status" id="statusRows"><div class="empty">加载中…</div></div>
+    </div>
+
+    <div class="overview-duo">
+      <div class="group">
+        <div class="group-head"><h2>平台解析量</h2></div>
+        <div class="rows" id="platformBars"><div class="empty">加载中…</div></div>
+      </div>
+
+      <div class="group">
+        <div class="group-head"><h2>近 14 天趋势</h2></div>
+        <div class="rows" id="trendBox"><div class="empty">加载中…</div></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-head">
+        <h2>解析量 Top 10</h2>
+        <div class="head-tools">
+          <div class="seg" id="topRangeSeg">
+            <button class="seg-btn on" data-range="day" title="仅统计今天">日</button>
+            <button class="seg-btn" data-range="week" title="统计近 7 天">周</button>
+            <button class="seg-btn" data-range="month" title="统计近 30 天">月</button>
+          </div>
+          <button class="btn btn-danger btn-mini" id="clearStatsBtn" title="清空全部解析统计（累计、趋势、群组与个人排行）">清除统计</button>
+        </div>
+      </div>
+      <div class="rank-head">群组</div>
+      <div class="rows" id="topGroups"><div class="empty">加载中…</div></div>
+      <div class="rank-head">个人</div>
+      <div class="rows" id="topUsers"><div class="empty">加载中…</div></div>
+    </div>
+  </section>
+
+  <!-- 全局配置 -->
+  <section class="panel" id="tab-global"></section>
+  <!-- 平台解析 -->
+  <section class="panel" id="tab-platform"></section>
+  <!-- 推送配置 -->
+  <section class="panel" id="tab-push"></section>
+  <!-- 上传与请求 -->
+  <section class="panel" id="tab-upload"></section>
+  <!-- 高级设置 -->
+  <section class="panel" id="tab-advanced"></section>
+
+  <!-- 群组管理 -->
+  <section class="panel" id="tab-groups">
+    <div id="groupConfigBox"></div>
+
+    <div class="group">
+      <div class="group-head">
+        <h2>机器人群列表</h2>
+        <input class="search" id="groupSearch" placeholder="搜索群号 / 群名" oninput="renderGroupTable()">
+      </div>
+      <div class="group-note">点击「加入惰解析」将该群写入惰解析群列表；惰解析群需带解析指令（如 <code>#解析</code> / <code>xk解析</code>）才会解析，裸链接与纯图片不再自动解析。</div>
+      <div class="rows" id="groupTableBox"><div class="empty">加载中…</div></div>
+    </div>
+  </section>
+</main>
+
+<div class="savebar" id="savebar">
+  <span class="dirty" id="dirtyLabel"></span>
+  <span class="spacer"></span>
+  <button class="btn btn-danger" id="resetBtn" onclick="resetChanges()">取消</button>
+  <button class="btn btn-primary" id="saveBtn" onclick="saveChanges()">保存</button>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="chart-tip" id="chartTip"></div>
+
+<script>
+const WEB_BASE = new URLSearchParams(location.search).get('__webBase') || ''
+const API = (path) => `${WEB_BASE}/api${path}`
+
+const TABS = {
+  overview: { title: '总览', sub: '解析运行状态与统计数据' },
+  global: { title: '全局配置', sub: 'Cookie、全局开关、渲染与媒体、API 服务' },
+  platform: { title: '平台解析', sub: '抖音 / 哔哩哔哩 / 快手 / 小红书的解析行为与画质偏好' },
+  push: { title: '推送配置', sub: '抖音与 B 站定时推送、推送列表与过滤' },
+  upload: { title: '上传与请求', sub: '上传发送方式、下载限速、请求与代理' },
+  advanced: { title: '高级设置', sub: '仲裁机制与并发解析' },
+  groups: { title: '群组管理', sub: '惰解析群白名单与机器人群列表' }
+}
+
+// 分组标题 → 页签（Divider 标题优先，其次 SOFT_GROUP_BEGIN 标题）
+const SECTION_TAB = {
+  'Cookie 配置': 'global',
+  '全局开关': 'global',
+  '渲染与媒体': 'global',
+  'API 服务（非配置面板）': 'global',
+  '抖音解析': 'platform',
+  'B站解析': 'platform',
+  '快手解析': 'platform',
+  '小红书解析': 'platform',
+  '抖音推送': 'push',
+  'B站推送': 'push',
+  '上传与下载': 'upload',
+  '请求配置': 'upload',
+  '代理配置': 'upload',
+  '仲裁机制': 'advanced',
+  '并发解析': 'advanced',
+  '惰解析': 'groups'
+}
+const GROUP_TAB = {
+  '基础配置': 'global',
+  '抖音配置': 'platform',
+  '哔哩哔哩': 'platform',
+  '快手配置': 'platform',
+  '小红书配置': 'platform',
+  '上传配置': 'upload',
+  '请求配置': 'upload',
+  '高级设置': 'advanced'
+}
+
+const PLATFORM_COLORS = { douyin: '#2563eb', bilibili: '#e879a8', kuaishou: '#f59e0b', xiaohongshu: '#dc2626' }
+
+// ───────────────────────── 表情可视化 · 数据 ─────────────────────────
+// 名称取自本机 QQNT 的表情资源（default-emojis/default_config.json），图集已复制到 webadapter/emoji/。
+// 每项为 [id, 名称]：id < 1000 为 QQ 系统表情（有本地图片），id >= 1000 为 Unicode emoji 的十进制码点。
+const EMOJI_GROUPS = [
+  { n: '小黄脸', e: [[14,"微笑"],[1,"撇嘴"],[2,"色"],[3,"发呆"],[4,"得意"],[6,"害羞"],[7,"闭嘴"],[8,"睡"],[9,"大哭"],[10,"尴尬"],[11,"发怒"],[12,"调皮"],[13,"呲牙"],[0,"惊讶"],[15,"难过"],[16,"酷"],[96,"冷汗"],[18,"抓狂"],[19,"吐"],[20,"偷笑"],[21,"可爱"],[22,"白眼"],[23,"傲慢"],[24,"饥饿"],[25,"困"],[26,"惊恐"],[27,"流汗"],[28,"憨笑"],[29,"悠闲"],[30,"奋斗"],[31,"咒骂"],[32,"疑问"],[33,"嘘"],[34,"晕"],[35,"折磨"],[36,"衰"],[37,"骷髅"],[38,"敲打"],[39,"再见"],[97,"擦汗"],[98,"抠鼻"],[99,"鼓掌"],[100,"糗大了"],[101,"坏笑"],[102,"左哼哼"],[103,"右哼哼"],[104,"哈欠"],[105,"鄙视"],[106,"委屈"],[107,"快哭了"],[108,"阴险"],[305,"右亲亲"],[109,"左亲亲"],[110,"吓"],[111,"可怜"],[172,"眨眼睛"],[182,"笑哭"],[179,"doge"],[173,"泪奔"],[174,"无奈"],[212,"托腮"],[175,"卖萌"],[178,"斜眼笑"],[177,"喷血"],[176,"小纠结"],[183,"我最美"],[262,"脑阔疼"],[263,"沧桑"],[264,"捂脸"],[265,"辣眼睛"],[266,"哦哟"],[267,"头秃"],[268,"问号脸"],[269,"暗中观察"],[270,"emm"],[271,"吃瓜"],[272,"呵呵哒"],[277,"汪汪"],[307,"喵喵"],[306,"牛气冲天"],[281,"无眼笑"],[282,"敬礼"],[283,"狂笑"],[284,"面无表情"],[285,"摸鱼"],[293,"摸锦鲤"],[286,"魔鬼笑"],[287,"哦"],[289,"睁眼"],[294,"期待"],[297,"拜谢"],[298,"元宝"],[299,"牛啊"],[300,"胖三斤"],[323,"嫌弃"],[332,"举牌牌"],[336,"豹富"],[353,"拜托"],[355,"耶"],[356,"666"],[354,"尊嘟假嘟"],[352,"咦"],[357,"裂开"],[428,"收到"],[334,"虎虎生威"],[347,"大展宏兔"],[303,"右拜年"],[302,"左拜年"],[295,"拿到红包"],[49,"拥抱"],[66,"爱心"],[63,"玫瑰"],[64,"凋谢"],[187,"幽灵"],[146,"爆筋"],[116,"示爱"],[67,"心碎"],[60,"咖啡"],[185,"羊驼"],[76,"赞"],[124,"OK"],[118,"抱拳"],[78,"握手"],[119,"勾引"],[79,"胜利"],[120,"拳头"],[121,"差劲"],[77,"踩"],[123,"NO"],[201,"点赞"],[273,"我酸了"],[46,"猪头"],[112,"菜刀"],[56,"刀"],[169,"手枪"],[171,"茶"],[59,"便便"],[144,"喝彩"],[147,"棒棒糖"],[89,"西瓜"],[41,"发抖"],[125,"转圈"],[42,"爱情"],[43,"跳跳"],[86,"怄火"],[129,"挥手"],[85,"飞吻"]] },
+  { n: '超级表情', e: [[5,"流泪"],[311,"打call"],[312,"变形"],[314,"仔细分析"],[317,"菜汪"],[318,"崇拜"],[319,"比心"],[320,"庆祝"],[324,"吃糖"],[325,"惊吓"],[337,"花朵脸"],[338,"我想开了"],[339,"舔屏"],[341,"打招呼"],[342,"酸Q"],[343,"我方了"],[344,"大怨种"],[345,"红包多多"],[346,"你真棒棒"],[181,"戳一戳"],[74,"太阳"],[75,"月亮"],[351,"敲敲"],[349,"坚强"],[350,"贴贴"],[395,"略略略"],[114,"篮球"],[326,"生气"],[53,"蛋糕"],[137,"鞭炮"],[333,"烟花"],[424,"续标识"],[415,"划龙舟"],[416,"中龙舟"],[417,"大龙舟"],[392,"龙年快乐"],[393,"新年中龙"],[394,"新年大龙"],[425,"求放过"],[427,"偷感"],[426,"玩火"],[419,"火车"],[420,"中火车"],[421,"大火车"],[429,"蛇年快乐"],[430,"蛇身"],[431,"蛇尾"]] },
+  { n: 'Emoji', e: [[128522,"嘿嘿"],[128524,"羞涩"],[128538,"亲亲"],[128531,"汗"],[128560,"紧张"],[128541,"吐舌"],[128513,"呲牙"],[128540,"淘气"],[9786,"可爱"],[128525,"花痴"],[128532,"失落"],[128516,"高兴"],[128527,"哼哼"],[128530,"不屑"],[128563,"瞪眼"],[128536,"飞吻"],[128557,"大哭"],[128561,"害怕"],[128514,"激动"],[128170,"肌肉"],[128074,"拳头"],[128077,"厉害"],[128079,"鼓掌"],[128078,"鄙视"],[128591,"合十"],[128076,"好的"],[128070,"向上"],[128064,"眼睛"],[127836,"拉面"],[127847,"刨冰"],[127838,"面包"],[127866,"啤酒"],[127867,"干杯"],[9749,"咖啡"],[127822,"苹果"],[127827,"草莓"],[127817,"西瓜"],[128684,"吸烟"],[127801,"玫瑰"],[127881,"庆祝"],[128157,"礼物"],[128163,"炸弹"],[10024,"闪光"],[128168,"吹气"],[128166,"水"],[128293,"火"],[128164,"睡觉"],[128169,"便便"],[128137,"打针"],[128235,"邮箱"],[128014,"骑马"],[128103,"女孩"],[128102,"男孩"],[128053,"猴"],[128055,"猪"],[128046,"牛"],[128020,"公鸡"],[128056,"青蛙"],[128123,"幽灵"],[128027,"虫"],[128054,"狗"],[128051,"鲸鱼"],[128098,"靴子"],[9728,"晴天"],[10068,"问号"],[128299,"手枪"],[128147,"爱心"],[127978,"便利店"]] },
+  { n: '互动表情', e: [[358,"骰子"],[359,"包剪锤"]] }
+]
+
+// 语义别名：跨平台可移植（QQ 侧解析为对应的系统表情 / Unicode 码点）
+const EMOJI_ALIASES = [
+  { value: 'EYES', id: 424, label: 'EYES', desc: '抢占标识', glyph: '👀' },
+  { value: 'PROCESSING', id: 366, label: 'PROCESSING', desc: '工作中', glyph: '⏳' },
+  { value: 'SUCCESS', id: 389, label: 'SUCCESS', desc: '解析成功', glyph: '✅' },
+  { value: 'ERROR', id: 5, label: 'ERROR', desc: '解析失败', glyph: '❌' }
+]
+
+const EMOJI_INDEX = new Map()
+for (const g of EMOJI_GROUPS) for (const [id, name] of g.e) EMOJI_INDEX.set(String(id), name)
+for (const a of EMOJI_ALIASES) if (!EMOJI_INDEX.has(String(a.id))) EMOJI_INDEX.set(String(a.id), a.label)
+// 个别语义别名（如 SUCCESS=389）在本地图集与 QQ CDN 都缺图，退化为语义字形兜底
+const EMOJI_ALIAS_GLYPH = new Map(EMOJI_ALIASES.map((a) => [String(a.id), a.glyph]))
+
+const EMOJI_SINGLE_FIELDS = new Set(['app.arbitrationFirstEmoji', 'app.arbitrationWorkingEmoji', 'app.parseFailedEmoji'])
+const EMOJI_MULTI_FIELDS = new Set(['app.arbitrationDetectEmojis'])
+const isEmojiField = (field) => EMOJI_SINGLE_FIELDS.has(field) || EMOJI_MULTI_FIELDS.has(field)
+const isAliasValue = (v) => EMOJI_ALIASES.some((a) => a.value === String(v))
+const aliasId = (v) => (EMOJI_ALIASES.find((a) => a.value === String(v)) || {}).id
+const isUnicodeEmoji = (id) => Number(id) >= 1000
+const emojiName = (id) => EMOJI_INDEX.get(String(id)) || ('#' + id)
+
+/** 表情图标：优先本地图集，缺失时回退 QQ 表情 CDN，再退化为 #id 文字 */
+function emojiIcon (id, cls) {
+  const box = document.createElement('span')
+  box.className = cls || 'pic'
+  const n = Number(id)
+  if (isUnicodeEmoji(n)) {
+    const s = document.createElement('span')
+    s.className = 'glyph'
+    try { s.textContent = String.fromCodePoint(n) } catch { s.textContent = '?' }
+    box.appendChild(s)
+    return box
+  }
+  const img = document.createElement('img')
+  img.alt = ''
+  img.onerror = () => {
+    if (!img.dataset.cdn) {
+      img.dataset.cdn = '1'
+      img.src = `https://qzonestyle.gtimg.cn/qzone/em/e${n}.gif`
+      return
+    }
+    const glyph = EMOJI_ALIAS_GLYPH.get(String(n))
+    const s = document.createElement('span')
+    if (glyph) { s.className = 'glyph'; s.textContent = glyph } else { s.className = 'unknown'; s.textContent = '#' + n }
+    box.replaceChildren(s)
+  }
+  img.src = `emoji/${n}.png`
+  box.appendChild(img)
+  return box
+}
+
+/** 单个已选表情的胶囊（含移除按钮） */
+function emojiChip (value, onRemove) {
+  const chip = document.createElement('span')
+  chip.className = 'emoji-pick-chip'
+  const alias = isAliasValue(value)
+  chip.appendChild(emojiIcon(alias ? aliasId(value) : value))
+  const text = document.createElement('span')
+  text.textContent = alias ? String(value) : emojiName(value)
+  chip.appendChild(text)
+  const x = document.createElement('span')
+  x.className = 'x'
+  x.textContent = '×'
+  x.title = '移除'
+  x.onclick = onRemove
+  chip.appendChild(x)
+  return chip
+}
+
+// ───────────────────────── 表情可视化 · 弹窗 ─────────────────────────
+
+let emojiModalRefs = null
+const emojiModalNode = () => {
+  if (emojiModalRefs) return emojiModalRefs
+  const mask = document.createElement('div')
+  mask.className = 'emoji-mask'
+  mask.onclick = hideEmojiModal
+  const modal = document.createElement('div')
+  modal.className = 'emoji-modal'
+  document.body.appendChild(mask)
+  document.body.appendChild(modal)
+  emojiModalRefs = { mask, modal }
+  return emojiModalRefs
+}
+
+function hideEmojiModal () {
+  if (!emojiModalRefs) return
+  emojiModalRefs.mask.classList.remove('show')
+  emojiModalRefs.modal.classList.remove('show')
+}
+
+/**
+ * 打开表情选择弹窗
+ * @param {string} title 弹窗标题（字段名）
+ * @param {boolean} multi 多选模式
+ * @param {string[]} current 当前已选值
+ * @param {(v: string|string[]) => void} onPick 选定回调
+ */
+function openEmojiModal ({ title, multi, current, onPick }) {
+  const { mask, modal } = emojiModalNode()
+  let picked = current.map(String)
+  let keyword = ''
+  let tab = picked.length && isAliasValue(picked[0]) ? 'alias' : 'g:' + EMOJI_GROUPS[0].n
+
+  const head = document.createElement('div')
+  head.className = 'emoji-modal-head'
+  const h3 = document.createElement('h3')
+  h3.textContent = title || '选择表情'
+  const sub = document.createElement('span')
+  sub.className = 'sub'
+  sub.textContent = multi ? '可多选' : '单选'
+  const close = document.createElement('button')
+  close.type = 'button'
+  close.className = 'close'
+  close.textContent = '×'
+  close.title = '关闭'
+  close.onclick = hideEmojiModal
+  head.append(h3, sub, close)
+
+  const tabs = document.createElement('div')
+  tabs.className = 'emoji-tabs'
+  const searchRow = document.createElement('div')
+  searchRow.className = 'emoji-search-row'
+  const search = document.createElement('input')
+  search.className = 'inp emoji-search'
+  search.type = 'text'
+  search.placeholder = '搜索表情名称或 ID…'
+  search.oninput = () => { keyword = search.value; paint() }
+  searchRow.appendChild(search)
+
+  const body = document.createElement('div')
+  body.className = 'emoji-body'
+
+  const foot = document.createElement('div')
+  foot.className = 'emoji-modal-foot'
+  const manual = document.createElement('input')
+  manual.className = 'inp'
+  manual.type = 'text'
+  manual.placeholder = '表情ID'
+  const manualAdd = document.createElement('button')
+  manualAdd.type = 'button'
+  manualAdd.className = 'btn btn-mini'
+  manualAdd.textContent = '手动添加'
+  const applyManual = () => {
+    const v = manual.value.trim()
+    if (!v) return
+    if (multi) { if (!picked.includes(v)) picked.push(v); manual.value = ''; paint() } else { onPick(v); hideEmojiModal() }
+  }
+  manualAdd.onclick = applyManual
+  manual.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); applyManual() } }
+  const count = document.createElement('span')
+  count.className = 'count'
+  const spacer = document.createElement('span')
+  spacer.className = 'spacer'
+  const done = document.createElement('button')
+  done.type = 'button'
+  done.className = 'btn btn-primary btn-mini'
+  done.textContent = '完成'
+  done.onclick = () => { onPick(picked); hideEmojiModal() }
+  foot.append(manual, manualAdd, spacer, count)
+  if (multi) foot.appendChild(done)
+
+  const paint = () => {
+    // 页签
+    tabs.replaceChildren()
+    const mk = (key, name) => {
+      const b = document.createElement('button')
+      b.type = 'button'
+      b.className = 'emoji-tab' + (tab === key ? ' on' : '')
+      b.textContent = name
+      b.onclick = () => { tab = key; keyword = ''; search.value = ''; paint() }
+      tabs.appendChild(b)
+    }
+    mk('alias', '语义别名')
+    for (const g of EMOJI_GROUPS) mk('g:' + g.n, g.n)
+
+    // 列表：有关键词时全局搜索，否则按页签展示
+    const kw = keyword.trim().toLowerCase()
+    let entries = []
+    if (kw) {
+      for (const g of EMOJI_GROUPS) {
+        for (const [id, name] of g.e) {
+          if (String(name).toLowerCase().includes(kw) || String(id).includes(kw)) entries.push({ id, name })
+        }
+      }
+    } else if (tab === 'alias') {
+      entries = EMOJI_ALIASES.map((a) => ({ id: a.id, name: a.label, value: a.value, desc: a.desc }))
+    } else {
+      const g = EMOJI_GROUPS.find((x) => 'g:' + x.n === tab)
+      entries = g ? g.e.map(([id, name]) => ({ id, name })) : []
+    }
+
+    body.replaceChildren()
+    if (!entries.length) {
+      const empty = document.createElement('div')
+      empty.className = 'emoji-empty'
+      empty.textContent = '没有匹配的表情'
+      body.appendChild(empty)
+    } else {
+      const grid = document.createElement('div')
+      grid.className = 'emoji-grid'
+      for (const it of entries) {
+        const val = String(it.value !== undefined ? it.value : it.id)
+        const tile = document.createElement('div')
+        tile.className = 'emoji-tile' + (picked.includes(val) ? ' on' : '')
+        tile.title = `${it.name} #${it.id}${it.desc ? ' · ' + it.desc : ''}`
+        tile.appendChild(emojiIcon(it.id))
+        const nm = document.createElement('div')
+        nm.className = 'nm'
+        nm.textContent = it.name
+        tile.appendChild(nm)
+        tile.onclick = () => {
+          if (multi) {
+            picked = picked.includes(val) ? picked.filter((x) => x !== val) : picked.concat(val)
+            tile.classList.toggle('on')
+            count.textContent = `已选 ${picked.length} 项`
+          } else {
+            onPick(val)
+            hideEmojiModal()
+          }
+        }
+        grid.appendChild(tile)
+      }
+      body.appendChild(grid)
+    }
+    count.textContent = `已选 ${picked.length} 项`
+  }
+
+  modal.replaceChildren(head, tabs, searchRow, body, foot)
+  paint()
+  mask.classList.add('show')
+  modal.classList.add('show')
+}
+
+/** 字段级表情选择器：已选胶囊 + 「选择表情」按钮 */
+function buildEmojiPicker (getValue, setValue, multi) {
+  const el = document.createElement('div')
+  el.className = 'emoji-ctl'
+
+  const render = () => {
+    el.replaceChildren()
+    const list = multi
+      ? toArray(getValue()).map(String)
+      : (getValue() === undefined || getValue() === null || getValue() === '' ? [] : [String(getValue())])
+
+    if (list.length) {
+      const sel = document.createElement('div')
+      sel.className = 'emoji-sel'
+      list.forEach((v) => {
+        sel.appendChild(emojiChip(v, () => {
+          if (multi) setValue(toArray(getValue()).map(String).filter((k) => k !== v))
+          else setValue('')
+          render()
+        }))
+      })
+      el.appendChild(sel)
+    } else {
+      const empty = document.createElement('span')
+      empty.className = 'emoji-empty'
+      empty.textContent = multi ? '未选择（不检测其他表情）' : '未设置'
+      el.appendChild(empty)
+    }
+
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'btn btn-mini'
+    btn.textContent = list.length ? '重新选择' : '选择表情'
+    btn.onclick = () => openEmojiModal({
+      title: multi ? '检测的其他表情' : '选择表情',
+      multi,
+      current: list,
+      onPick: (v) => { setValue(multi ? v : String(v)); render() }
+    })
+    el.appendChild(btn)
+  }
+
+  render()
+  el._sync = render
+  return el
+}
+
+let SCHEMAS = []
+let CONFIG = {}
+let META = {}
+let GROUPS = []
+let GROUP_INFO = { manualParseEnabled: false, manualParseGroups: [] }
+// 群组排行的统计时间维度：day | week | month
+let TOP_RANGE = 'day'
+
+/** 当前值 / 初始值，键为点分字段路径 */
+const VALUES = new Map()
+const INITIAL = new Map()
+
+const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)))
+const getPath = (obj, path) => path.split('.').reduce((acc, k) => (acc === null || acc === undefined ? acc : acc[k]), obj)
+const esc = (s) => String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+const sameValue = (a, b) => JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b)
+const toArray = (v) => (Array.isArray(v) ? v : v === undefined || v === null || v === '' ? [] : [v])
+
+function toast (msg, kind) {
+  const el = document.getElementById('toast')
+  el.textContent = msg
+  el.className = 'toast show' + (kind ? ' ' + kind : '')
+  clearTimeout(el._timer)
+  el._timer = setTimeout(() => { el.className = 'toast' }, 2600)
+}
+
+/** 选项值可能是数字，前端一律按字符串比较，回写时还原为原始类型 */
+function resolveOptionValue (options, raw) {
+  const hit = (options || []).find((opt) => String(opt.value) === String(raw))
+  return hit ? hit.value : raw
+}
+
+// ───────────────────────── schema 解析 ─────────────────────────
+
+function parseSchema (schemas) {
+  const groups = []
+  let g = null
+  let s = null
+  for (const item of schemas || []) {
+    if (item.component === 'SOFT_GROUP_BEGIN') {
+      g = { title: item.label, sections: [] }
+      groups.push(g)
+      s = null
+      continue
+    }
+    if (item.component === 'Divider') {
+      if (!g) { g = { title: '配置', sections: [] }; groups.push(g) }
+      s = { title: item.label, fields: [] }
+      g.sections.push(s)
+      continue
+    }
+    if (!item.field) continue
+    if (!g) { g = { title: '配置', sections: [] }; groups.push(g) }
+    if (!s) { s = { title: '', fields: [] }; g.sections.push(s) }
+    s.fields.push(item)
+  }
+  return groups
+}
+
+function tabOf (groupTitle, sectionTitle) {
+  return SECTION_TAB[sectionTitle] || GROUP_TAB[groupTitle] || 'global'
+}
+
+// ───────────────────────── 控件构建 ─────────────────────────
+
+function fieldRow (item, controlEl) {
+  const row = document.createElement('div')
+  row.className = 'field'
+  // 开关行在多列网格中可与其他开关并排
+  if (item.component === 'Switch') row.classList.add('sw')
+  const stack = item.component === 'GTags' || item.component === 'GSubForm' ||
+    // 表情选择器是一排表情胶囊，需占满整行
+    isEmojiField(item.field) ||
+    // 多选 Select 渲染为一排 chip，与标签（GTags）同类，统一「标签在上、控件在下」
+    (item.component === 'Select' && item.componentProps?.mode === 'multiple')
+  if (stack) row.classList.add('stack')
+
+  const labelBox = document.createElement('div')
+  labelBox.className = 'field-label'
+  const label = document.createElement('label')
+  label.textContent = item.label || item.field
+  labelBox.appendChild(label)
+  if (item.bottomHelpMessage) {
+    const hint = document.createElement('div')
+    hint.className = 'hint'
+    hint.textContent = item.bottomHelpMessage
+    hint.title = item.bottomHelpMessage
+    labelBox.appendChild(hint)
+  }
+
+  const ctl = document.createElement('div')
+  ctl.className = 'ctl'
+  ctl.appendChild(controlEl)
+
+  row.appendChild(labelBox)
+  row.appendChild(ctl)
+  return row
+}
+
+function buildControl (item, getValue, setValue) {
+  const props = item.componentProps || {}
+  if (isEmojiField(item.field)) return buildEmojiPicker(getValue, setValue, EMOJI_MULTI_FIELDS.has(item.field))
+  switch (item.component) {
+    case 'Switch': return buildToggle(getValue, setValue)
+    case 'InputNumber': return buildNumber(item, props, getValue, setValue)
+    case 'RadioGroup': return buildRadio(props, getValue, setValue)
+    case 'Select': return buildSelect(props, getValue, setValue)
+    case 'GTags': return buildTags(props, getValue, setValue)
+    case 'GSubForm': return buildSubForm(item, props, getValue, setValue)
+    case 'InputPassword': return buildText(getValue, setValue, { password: true, placeholder: props.placeholder || '建议配置', autocomplete: 'new-password' })
+    case 'EasyCron': return buildText(getValue, setValue, { placeholder: props.placeholder || '*/10 * * * *', mono: true })
+    default: return buildText(getValue, setValue, { placeholder: props.placeholder || '' })
+  }
+}
+
+function buildToggle (getValue, setValue) {
+  const el = document.createElement('div')
+  el.className = 'toggle'
+  const sync = () => { el.classList.toggle('on', getValue() === true) }
+  el.onclick = () => { setValue(!(getValue() === true)); sync() }
+  sync()
+  el._sync = sync
+  return el
+}
+
+const EYE_ICONS = {
+  open: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>',
+  off: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 6.1A9.9 9.9 0 0 1 12 5.5c6.4 0 10 6.5 10 6.5a17.6 17.6 0 0 1-3.2 4"/><path d="M6.5 8.3A17.5 17.5 0 0 0 2 12s3.6 6.5 10 6.5c1.6 0 3-.4 4.2-1"/><path d="M9.6 9.9a3 3 0 0 0 4.3 4.2"/></svg>'
+}
+
+function buildText (getValue, setValue, opts) {
+  const el = document.createElement('input')
+  el.className = 'inp' + (opts.mono ? ' mono' : '')
+  el.type = opts.password ? 'password' : 'text'
+  if (opts.placeholder) el.placeholder = opts.placeholder
+  if (opts.autocomplete) el.autocomplete = opts.autocomplete
+  el.value = getValue() === undefined || getValue() === null ? '' : String(getValue())
+  el.oninput = () => setValue(el.value)
+  if (!opts.password) return el
+
+  const wrap = document.createElement('div')
+  wrap.className = 'pwd-wrap'
+  const eye = document.createElement('button')
+  eye.type = 'button'
+  eye.className = 'eye'
+  eye.title = '显示明文'
+  eye.setAttribute('aria-label', '显示明文')
+  eye.innerHTML = EYE_ICONS.off
+  eye.onclick = () => {
+    const show = el.type === 'password'
+    el.type = show ? 'text' : 'password'
+    eye.classList.toggle('on', show)
+    eye.title = show ? '隐藏明文' : '显示明文'
+    eye.setAttribute('aria-label', eye.title)
+    eye.innerHTML = show ? EYE_ICONS.open : EYE_ICONS.off
+  }
+  wrap.appendChild(el)
+  wrap.appendChild(eye)
+  return wrap
+}
+
+function buildNumber (item, props, getValue, setValue) {
+  const wrap = document.createElement('div')
+  wrap.className = 'num-wrap'
+  const el = document.createElement('input')
+  el.className = 'inp'
+  el.type = 'number'
+  if (Number.isFinite(props.min)) el.min = String(props.min)
+  if (Number.isFinite(props.max)) el.max = String(props.max)
+  const cur = getValue()
+  el.value = cur === undefined || cur === null ? '' : String(cur)
+  el.oninput = () => setValue(el.value === '' ? undefined : Number(el.value))
+  wrap.appendChild(el)
+  if (props.addonAfter) {
+    const addon = document.createElement('span')
+    addon.className = 'addon'
+    addon.textContent = props.addonAfter
+    wrap.appendChild(addon)
+  }
+  return wrap
+}
+
+function buildRadio (props, getValue, setValue) {
+  const el = document.createElement('div')
+  el.className = 'seg'
+  const options = props.options || []
+  const buttons = []
+  const sync = () => {
+    const cur = String(getValue())
+    buttons.forEach((btn, i) => btn.classList.toggle('on', String(options[i].value) === cur))
+  }
+  options.forEach((opt) => {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'seg-btn'
+    btn.textContent = opt.label
+    btn.onclick = () => { setValue(opt.value); sync() }
+    buttons.push(btn)
+    el.appendChild(btn)
+  })
+  sync()
+  el._sync = sync
+  return el
+}
+
+function buildSelect (props, getValue, setValue) {
+  const options = props.options || []
+  const multiple = props.mode === 'multiple'
+  if (multiple) {
+    const el = document.createElement('div')
+    el.className = 'chips'
+    const buttons = []
+    const sync = () => {
+      const cur = toArray(getValue()).map(String)
+      buttons.forEach((btn, i) => btn.classList.toggle('on', cur.includes(String(options[i].value))))
+    }
+    options.forEach((opt) => {
+      const chip = document.createElement('div')
+      chip.className = 'chip'
+      chip.textContent = opt.label
+      chip.onclick = () => {
+        const cur = toArray(getValue()).map((v) => String(v))
+        const key = String(opt.value)
+        const next = cur.includes(key) ? cur.filter((v) => v !== key) : cur.concat(key)
+        // 还原为 schema 中的原始类型（B 站画质等为数字）
+        setValue(next.map((v) => resolveOptionValue(options, v)))
+        sync()
+      }
+      buttons.push(chip)
+      el.appendChild(chip)
+    })
+    sync()
+    el._sync = sync
+    return el
+  }
+
+  const el = document.createElement('select')
+  el.className = 'inp'
+  options.forEach((opt) => {
+    const o = document.createElement('option')
+    o.value = String(opt.value)
+    o.textContent = opt.label
+    el.appendChild(o)
+  })
+  const cur = getValue()
+  if (cur !== undefined && cur !== null) el.value = String(cur)
+  el.onchange = () => setValue(resolveOptionValue(options, el.value))
+  return el
+}
+
+function buildTags (props, getValue, setValue) {
+  const el = document.createElement('div')
+  el.className = 'chips'
+
+  const render = () => {
+    el.innerHTML = ''
+    const list = toArray(getValue())
+    list.forEach((tag, index) => {
+      const chip = document.createElement('div')
+      chip.className = 'chip on'
+      const text = document.createElement('span')
+      text.textContent = String(tag)
+      const x = document.createElement('span')
+      x.className = 'x'
+      x.textContent = '×'
+      x.title = '移除'
+      x.onclick = () => {
+        const next = toArray(getValue()).slice()
+        next.splice(index, 1)
+        setValue(next)
+        render()
+        // 移除标签后同步联动视图（如群组管理页的群列表）
+        el._afterChange && el._afterChange()
+      }
+      chip.appendChild(text)
+      chip.appendChild(x)
+      el.appendChild(chip)
+    })
+
+    const input = document.createElement('input')
+    input.className = 'tag-add'
+    input.placeholder = props.placeholder || '输入后回车添加'
+    input.onkeydown = (ev) => {
+      if (ev.key !== 'Enter') return
+      ev.preventDefault()
+      const value = input.value.trim()
+      if (!value) return
+      const next = toArray(getValue()).slice()
+      if (!next.map(String).includes(value)) next.push(value)
+      setValue(next)
+      input.value = ''
+      render()
+      el._afterChange && el._afterChange()
+    }
+    el.appendChild(input)
+    el._input = input
+  }
+
+  render()
+  el._sync = render
+  return el
+}
+
+function buildSubForm (item, props, getValue, setValue) {
+  const el = document.createElement('div')
+  el.className = 'subform'
+  const subSchemas = (props.schemas || []).filter((s) => s && s.field)
+
+  const render = () => {
+    el.innerHTML = ''
+    const list = toArray(getValue())
+
+    list.forEach((entry, index) => {
+      const card = document.createElement('div')
+      card.className = 'subcard'
+
+      const head = document.createElement('div')
+      head.className = 'subcard-head'
+      const idx = document.createElement('span')
+      idx.className = 'idx'
+      idx.textContent = '#' + (index + 1)
+      head.appendChild(idx)
+      const title = document.createElement('span')
+      title.textContent = item.label || '条目'
+      head.appendChild(title)
+
+      const rm = document.createElement('button')
+      rm.type = 'button'
+      rm.className = 'btn btn-danger btn-mini rm'
+      rm.textContent = '删除'
+      rm.onclick = () => {
+        const next = toArray(getValue()).slice()
+        next.splice(index, 1)
+        setValue(next)
+        render()
+      }
+      head.appendChild(rm)
+      card.appendChild(head)
+
+      const body = document.createElement('div')
+      body.className = 'subcard-body'
+      subSchemas.forEach((sub) => {
+        const control = buildControl(
+          sub,
+          () => entry[sub.field],
+          // 子表单字段直接改动数组元素，需显式标脏，否则保存条不会出现
+          (v) => { entry[sub.field] = v; markDirty() }
+        )
+        body.appendChild(fieldRow(sub, control))
+      })
+      card.appendChild(body)
+      el.appendChild(card)
+    })
+
+    const add = document.createElement('button')
+    add.type = 'button'
+    add.className = 'btn'
+    add.textContent = '＋ 添加' + (item.label || '条目')
+    add.onclick = () => {
+      const next = toArray(getValue()).slice()
+      next.push({})
+      setValue(next)
+      render()
+    }
+    el.appendChild(add)
+  }
+
+  render()
+  el._sync = render
+  return el
+}
+
+// ───────────────────────── 配置面板渲染 ─────────────────────────
+
+const SYNCERS = []
+
+// 语义分组：同一数组内的字段并排成一行（按含义配对，而非按相邻顺序机械分列）
+// 组内顺序即显示顺序；未列入的字段沿用「连续开关自动成行」的兜底逻辑
+const ROW_GROUPS = [
+  // ── 基础配置 · Cookie：四个平台两两一行 ──
+  ['cookies.douyin', 'cookies.bilibili'],
+  ['cookies.kuaishou', 'cookies.xiaohongshu'],
+
+  // ── 基础配置 · 全局开关 ──
+  ['app.videoTool', 'app.privateTool'], // 总开关 / 私聊解析
+  ['app.defaulttool', 'app.priority', 'app.parseTip'], // 默认解析 / 优先级 / 解析提示
+  ['app.overLimitCommandParse', 'app.overLimitCommandParsePermission'], // 超限指令解析 + 权限（置于表情回应前）
+  ['app.removeCache', 'app.cacheRetentionMinutes'], // 缓存开关 + 保留时长
+  ['app.sendforwardmsg', 'app.fakeForward'], // 合并转发：发送 + 伪造
+
+  // ── 基础配置 · 渲染与媒体 ──
+  ['app.Theme', 'app.ThemeLightHour', 'app.ThemeDarkHour'], // 主题 + 深浅色切换时间
+  ['app.renderScale', 'app.RemoveWatermark', 'app.RenderWaitTime'], // 渲染精度 / 水印 / 等待
+  ['app.multiPageRender', 'app.multiPageHeight'], // 分页渲染开关 + 高度
+  ['app.livePhotoSystem', 'app.livePhotoMode'], // Live Photo：兼容系统 + 发送方式
+
+  // ── 基础配置 · API 服务 ──
+  ['app.APIServer', 'app.APIServerPort', 'app.APIServerMount'],
+
+  // ── 抖音解析 ──
+  ['douyin.subCommentLimit', 'douyin.subCommentDepth'], // 次级评论：数量 + 深度
+  ['douyin.realCommentCount', 'douyin.commentImageCollection'], // 评论增强
+  ['douyin.videoInfoMode', 'douyin.displayContent'], // 信息返回形式 + 信息内容
+  ['douyin.burnDanmaku', 'douyin.danmakuArea'], // 弹幕：烧录 + 显示区域
+  ['douyin.danmakuFontSize', 'douyin.danmakuOpacity'], // 弹幕：字号 + 透明度
+  ['douyin.verticalMode', 'douyin.videoCodec'], // 输出视频：竖屏适配 + 编码
+
+  // ── 抖音推送 ──
+  ['douyin.push.switch', 'douyin.push.cron'], // 推送开关 + 定时表达式
+  ['douyin.push.permission', 'douyin.push.log'], // 推送权限 + 任务日志
+  ['douyin.push.parsedynamic', 'douyin.push.shareType'], // 作品附带 + 分享类型
+  ['douyin.push.pushVideoQuality', 'douyin.push.pushMaxAutoVideoSize'], // 推送画质 + 体积上限
+
+  // ── B站解析 ──
+  ['bilibili.realCommentCount', 'bilibili.commentImageCollection'], // 评论增强
+  ['bilibili.videoInfoMode', 'bilibili.showDanmakuInVideoInfo'], // 信息返回形式 + 高频弹幕
+  ['bilibili.burnDanmaku', 'bilibili.danmakuArea'], // 弹幕：烧录 + 显示区域
+  ['bilibili.danmakuFontSize', 'bilibili.danmakuOpacity'], // 弹幕：字号 + 透明度
+  ['bilibili.verticalMode', 'bilibili.videoCodec'], // 输出视频：竖屏适配 + 编码
+
+  // ── B站推送 ──
+  ['bilibili.push.switch', 'bilibili.push.cron'],
+  ['bilibili.push.permission', 'bilibili.push.log'],
+  ['bilibili.push.pushVideoQuality', 'bilibili.push.pushMaxAutoVideoSize'],
+
+  // ── 快手解析 ──
+  ['kuaishou.comment'], // 评论解析
+
+  // ── 上传与下载 ──
+  ['upload.sendbase64', 'upload.videoSendMode'], // 视频发送方式：base64 开关 + 模式
+  ['upload.usefilelimit', 'upload.filelimit'], // 上传拦截开关 + 阈值
+  ['upload.compress', ['upload.compresstrigger', 'upload.compressvalue']], // 压缩开关 +（触发阈值、压缩后大小 跟在后面）
+  ['upload.usegroupfile', 'upload.groupfilevalue'], // 群文件上传开关 + 阈值
+  ['upload.downloadThrottle', 'upload.downloadMaxSpeed'], // 下载限速开关 + 速度上限
+  ['upload.downloadAutoReduce', 'upload.downloadMinSpeed'], // 断流降速开关 + 最低速度
+
+  // ── 请求配置 ──
+  ['request.timeout', 'request.User-Agent'], // 超时 + UA
+  ['request.proxy.host', 'request.proxy.port', 'request.proxy.protocol'], // 代理地址 / 端口 / 协议
+  ['request.proxy.auth.username', 'request.proxy.auth.password'], // 代理认证
+
+  // ── 高级设置 · 并发解析 ──
+  ['douyin.parseConcurrency', 'upload.downloadConcurrency'] // 平台解析并发 + 下载分片并发
+]
+
+const GROUP_OF = new Map()
+for (const group of ROW_GROUPS) {
+  for (const slot of group) {
+    for (const field of Array.isArray(slot) ? slot : [slot]) GROUP_OF.set(field, group)
+  }
+}
+
+/** 统一构建控件：注册同步器，并挂上需要联动刷新的回调 */
+function buildFieldControl (item) {
+  const control = buildControl(
+    item,
+    () => VALUES.get(item.field),
+    (v) => { VALUES.set(item.field, v); markDirty() }
+  )
+  if (control._sync) SYNCERS.push({ field: item.field, sync: control._sync })
+  if (item.field === 'advanced.manualParseGroups') control._afterChange = renderGroupTable
+  return control
+}
+
+/** 单个内联单元格：标签 / 提示 / 控件 */
+function inlineCell (item) {
+  const cell = document.createElement('div')
+  cell.className = 'inline-cell'
+  const label = document.createElement('div')
+  label.className = 'inline-label'
+  label.textContent = item.label || item.field
+  cell.appendChild(label)
+  if (item.bottomHelpMessage) {
+    const hint = document.createElement('div')
+    hint.className = 'inline-hint'
+    hint.textContent = item.bottomHelpMessage
+    cell.appendChild(hint)
+  }
+  const ctl = document.createElement('div')
+  ctl.className = 'inline-ctl'
+  ctl.appendChild(buildFieldControl(item))
+  cell.appendChild(ctl)
+  return cell
+}
+
+/** 把若干「含义相关」的字段并排渲染到同一行；槽位为数组时，其内字段在同一格内继续并排 */
+function inlineFieldRow (slots) {
+  const row = document.createElement('div')
+  row.className = 'field inline cols-' + Math.min(slots.length, 4)
+  for (const slot of slots) {
+    if (Array.isArray(slot)) {
+      const sub = document.createElement('div')
+      sub.className = 'inline-sub cols-' + Math.min(slot.length, 4)
+      slot.forEach((item) => sub.appendChild(inlineCell(item)))
+      row.appendChild(sub)
+      continue
+    }
+    row.appendChild(inlineCell(slot))
+  }
+  return row
+}
+
+function renderConfigTabs () {
+  SYNCERS.length = 0
+  const panels = {
+    global: document.getElementById('tab-global'),
+    platform: document.getElementById('tab-platform'),
+    push: document.getElementById('tab-push'),
+    upload: document.getElementById('tab-upload'),
+    advanced: document.getElementById('tab-advanced'),
+    groups: document.getElementById('groupConfigBox')
+  }
+  Object.values(panels).forEach((el) => { el.innerHTML = '' })
+
+  const groups = parseSchema(SCHEMAS)
+  for (const g of groups) {
+    for (const s of g.sections) {
+      if (!s.fields.length) continue
+      const tab = tabOf(g.title, s.title)
+      const panel = panels[tab] || panels.global
+
+      const card = document.createElement('div')
+      card.className = 'group'
+
+      const head = document.createElement('div')
+      head.className = 'group-head'
+      const h2 = document.createElement('h2')
+      h2.textContent = s.title || g.title
+      head.appendChild(h2)
+      card.appendChild(head)
+
+      const rows = document.createElement('div')
+      rows.className = 'rows'
+      card.appendChild(rows)
+      panel.appendChild(card)
+
+      const done = new Set()
+      const renderedGroups = new Set()
+      // 连续的开关攒成一组，组内多列排布；遇到整行字段再统一落盘，避免网格空洞
+      let swBuffer = []
+      const flushSwitches = () => {
+        if (!swBuffer.length) return
+        if (swBuffer.length === 1) {
+          // 单个开关独占一行时沿用分组内「标签在上、控件在下」的样式，避免标签被拉满整行、开关被推到行尾
+          rows.appendChild(inlineFieldRow([swBuffer[0]]))
+        } else {
+          const grid = document.createElement('div')
+          grid.className = 'swgrid'
+          swBuffer.forEach((it) => grid.appendChild(inlineCell(it)))
+          rows.appendChild(grid)
+        }
+        swBuffer = []
+      }
+
+      for (const item of s.fields) {
+        if (done.has(item.field)) continue
+
+        // 语义分组：把同一组里「含义相关」的字段并排成一行
+        const group = GROUP_OF.get(item.field)
+        if (group && !renderedGroups.has(group)) {
+          const slots = group.map((slot) => {
+            const names = Array.isArray(slot) ? slot : [slot]
+            const items = names.map((f) => s.fields.find((x) => x.field === f)).filter(Boolean)
+            if (!items.length) return null
+            return Array.isArray(slot) ? items : items[0]
+          }).filter(Boolean)
+          const total = slots.reduce((n, x) => n + (Array.isArray(x) ? x.length : 1), 0)
+          if (total >= 2) {
+            renderedGroups.add(group)
+            slots.forEach((x) => (Array.isArray(x) ? x : [x]).forEach((it) => done.add(it.field)))
+            flushSwitches()
+            rows.appendChild(inlineFieldRow(slots))
+            continue
+          }
+        }
+
+        if (item.component === 'Switch') {
+          swBuffer.push(item)
+          continue
+        }
+
+        flushSwitches()
+        rows.appendChild(fieldRow(item, buildFieldControl(item)))
+      }
+      flushSwitches()
+    }
+  }
+
+  // 群组管理页：惰解析开关置顶为提示条
+  if (!panels.groups.children.length) {
+    panels.groups.innerHTML = '<div class="group"><div class="empty">未找到惰解析相关配置</div></div>'
+  }
+  renderGroupTable()
+  // 重渲染后卡片引用已失效，按当前页签重建悬浮导航
+  renderSideNav(currentTab())
+}
+
+function syncControls (field) {
+  SYNCERS.filter((s) => s.field === field).forEach((s) => { try { s.sync() } catch { /* 忽略单控件同步失败 */ } })
+}
+
+// ───────────────────────── 变更追踪 ─────────────────────────
+
+function collectChanges () {
+  const payload = {}
+  for (const [field, value] of VALUES.entries()) {
+    if (value === undefined) continue
+    if (!sameValue(value, INITIAL.get(field))) payload[field] = value
+  }
+  return payload
+}
+
+function markDirty () {
+  const changes = collectChanges()
+  const count = Object.keys(changes).length
+  const bar = document.getElementById('savebar')
+  const label = document.getElementById('dirtyLabel')
+  if (count > 0) {
+    bar.classList.add('show')
+    label.textContent = `已修改 ${count} 项，尚未保存`
+  } else {
+    bar.classList.remove('show')
+    label.textContent = ''
+  }
+}
+
+function resetChanges () {
+  for (const [field, value] of INITIAL.entries()) VALUES.set(field, clone(value))
+  renderConfigTabs()
+  markDirty()
+  toast('已取消未保存的修改')
+}
+
+async function saveChanges () {
+  const payload = collectChanges()
+  if (!Object.keys(payload).length) { toast('没有需要保存的修改'); return }
+  const btn = document.getElementById('saveBtn')
+  btn.disabled = true
+  btn.textContent = '保存中…'
+  try {
+    const res = await fetch(API('/kkkkkk-10086/config'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    const data = await res.json()
+    if (!data.ok) throw new Error(data.error || '保存失败')
+    for (const [field, value] of Object.entries(payload)) INITIAL.set(field, clone(value))
+    markDirty()
+    toast('配置已保存', 'ok')
+    loadStatus()
+    loadStats()
+  } catch (e) {
+    toast('保存失败：' + e.message, 'err')
+  } finally {
+    btn.disabled = false
+    btn.textContent = '保存'
+  }
+}
+
+// ───────────────────────── 总览 ─────────────────────────
+
+async function loadStatus () {
+  try {
+    const res = await fetch(API('/kkkkkk-10086/status'))
+    const data = await res.json()
+    if (!data.ok) throw new Error(data.error || '读取状态失败')
+    renderStatus(data.data)
+    document.getElementById('statusDot').className = 'status-dot on'
+    document.getElementById('statusLabel').textContent = `v${data.data.version}`
+  } catch (e) {
+    document.getElementById('statusDot').className = 'status-dot err'
+    document.getElementById('statusLabel').textContent = '接口异常'
+    document.getElementById('statusRows').innerHTML = `<div class="empty">读取运行状态失败：${esc(e.message)}</div>`
+  }
+}
+
+function renderStatus (s) {
+  const on = (v) => (v ? '<span class="badge on">已开启</span>' : '<span class="badge off">已关闭</span>')
+  const PERM_LABEL = { all: '所有人', admin: '管理员', master: '主人', 'group.owner': '群主', 'group.admin': '群管理员' }
+  const g = s.global || {}
+  const platformBadges = (s.platforms || [])
+    .map((p) => `<span class="badge ${p.enabled ? 'on' : 'off'}">${esc(p.label)}</span>`)
+    .join('')
+
+  const rows = [
+    ['插件版本', `<span class="badge">${esc(s.pluginName)} v${esc(s.version)}</span>`],
+    ['运行框架', `<span class="badge">${esc(s.botName)} ${esc(s.botVersion)}</span>`],
+    ['总开关', on(g.videoTool)],
+    ['私聊解析', on(g.privateTool)],
+    ['解析提示', on(g.parseTip)],
+    ['超限指令解析', on(g.overLimitCommandParse) + (g.overLimitCommandParse ? ` <span class="badge">${esc(PERM_LABEL[g.overLimitCommandParsePermission] || '主人')}</span>` : '')],
+    ['表情回应', on(g.emojiReply)],
+    ['删除视频缓存', on(g.removeCache) + (g.removeCache ? ` <span class="badge">保留 ${esc(g.cacheRetentionMinutes)} 分钟</span>` : '')],
+    ['仲裁机制', on(g.arbitrationEnabled)],
+    ['惰解析', on(g.manualParseEnabled)],
+    ['解析并发数', `<span class="badge">${esc(g.parseConcurrency)}</span>`],
+    ['下载分片数', `<span class="badge">${esc(g.downloadConcurrency)}</span>`],
+    ['平台开关', `<div class="badges">${platformBadges}</div>`, true]
+  ]
+
+  document.getElementById('statusRows').innerHTML = rows
+    .map(([k, v, full]) => `<div class="field${full ? ' full' : ''}"><div class="field-label"><label>${esc(k)}</label></div><div class="ctl">${v}</div></div>`)
+    .join('')
+}
+
+async function loadStats () {
+  try {
+    const res = await fetch(API('/kkkkkk-10086/stats?range=' + encodeURIComponent(TOP_RANGE)))
+    const data = await res.json()
+    if (!data.ok) throw new Error(data.error || '读取统计失败')
+    renderStats(data.data)
+  } catch (e) {
+    const box = '<div class="empty">读取解析统计失败：' + esc(e.message) + '</div>'
+    document.getElementById('statGrid').innerHTML = ''
+    document.getElementById('platformBars').innerHTML = box
+    document.getElementById('trendBox').innerHTML = box
+    document.getElementById('topGroups').innerHTML = box
+    document.getElementById('topUsers').innerHTML = box
+  }
+}
+
+function renderStats (d) {
+  const summary = d.summary || {}
+  const history = d.history || []
+  const today = new Date().toISOString().slice(0, 10)
+  const todayRow = history.find((h) => h.date === today)
+
+  document.getElementById('statGrid').innerHTML = [
+    ['累计解析量', summary.totalParses || 0, ''],
+    ['覆盖群组', summary.totalGroups || 0, ''],
+    ['独立用户', summary.totalUsers || 0, ''],
+    ['今日解析', todayRow ? todayRow.total : 0, '']
+  ].map(([k, v]) => `<div class="stat-card"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div></div>`).join('')
+
+  // 条形长度 = 该平台占全部平台解析量的百分比（此前按最大值归一，榜首永远满格，条形没有信息量）
+  const platformRows = d.platformRows || []
+  const platformTotal = platformRows.reduce((sum, p) => sum + (p.count || 0), 0)
+  document.getElementById('platformBars').innerHTML = platformRows
+    .map((p) => {
+      const count = p.count || 0
+      const pct = platformTotal > 0 ? (count / platformTotal) * 100 : 0
+      const pctText = count > 0 ? `${pct.toFixed(1)}%` : '0%'
+      const minWidth = count > 0 ? ';min-width:3px' : ''
+      return `<div class="bar-row">
+      <span class="name">${esc(p.label)}</span>
+      <span class="track"><span class="fill" style="width:${pct.toFixed(2)}%${minWidth};background:${PLATFORM_COLORS[p.key] || 'var(--accent)'}"></span></span>
+      <span class="num"><b>${esc(count)}</b><i>${pctText}</i></span>
+    </div>`
+    }).join('') || '<div class="empty">暂无解析记录</div>'
+
+  if (!history.length) {
+    document.getElementById('trendBox').innerHTML = '<div class="empty">暂无历史数据</div>'
+  } else {
+    const maxTotal = Math.max(1, ...history.map((h) => h.total))
+    const BAR_AREA = 82
+    const cols = history.map((h) => {
+      const segs = ['douyin', 'bilibili', 'kuaishou', 'xiaohongshu']
+        .map((key) => (h[key] ? `<div class="seg-d" style="height:${Math.max(2, Math.round((h[key] / maxTotal) * BAR_AREA))}px;background:${PLATFORM_COLORS[key]}"></div>` : ''))
+        .join('')
+      const stackHeight = Math.max(2, Math.round((h.total / maxTotal) * BAR_AREA))
+      return `<div class="col" data-date="${esc(h.date)}" data-total="${esc(h.total || 0)}" data-douyin="${esc(h.douyin || 0)}" data-bilibili="${esc(h.bilibili || 0)}" data-kuaishou="${esc(h.kuaishou || 0)}" data-xiaohongshu="${esc(h.xiaohongshu || 0)}">
+        <div class="stack" style="height:${stackHeight}px">${segs || '<div class="seg-d" style="height:2px;background:var(--line-2)"></div>'}</div>
+        <span class="lbl">${esc(h.date.slice(5))}</span>
+      </div>`
+    }).join('')
+    document.getElementById('trendBox').innerHTML = `<div class="trend">${cols}</div>
+      <div class="legend">
+        <span><i style="background:${PLATFORM_COLORS.douyin}"></i>抖音</span>
+        <span><i style="background:${PLATFORM_COLORS.bilibili}"></i>哔哩哔哩</span>
+        <span><i style="background:${PLATFORM_COLORS.kuaishou}"></i>快手</span>
+        <span><i style="background:${PLATFORM_COLORS.xiaohongshu}"></i>小红书</span>
+      </div>`
+  }
+
+  const top = d.topGroups || []
+  const rangeLabel = d.rangeLabel || '今天'
+  document.getElementById('topGroups').innerHTML = top.length
+    ? `<table class="table rank-table">
+        <colgroup><col class="col-rank"><col class="col-name"><col class="col-id"><col class="col-num"></colgroup>
+        <thead><tr><th>#</th><th>群组</th><th>群号</th><th class="r">解析量（${esc(rangeLabel)}）</th></tr></thead>
+        <tbody>${top.map((g, i) => `<tr>
+          <td class="gid">${i + 1}</td>
+          <td class="gname">${esc(g.groupName || '未知群名')}</td>
+          <td class="gid">${esc(g.groupId)}</td>
+          <td class="r"><b>${esc(g.total)}</b></td>
+        </tr>`).join('')}</tbody>
+      </table>`
+    : `<div class="empty">${esc(rangeLabel)}暂无群组统计</div>`
+
+  const topUsers = d.topUsers || []
+  document.getElementById('topUsers').innerHTML = topUsers.length
+    ? `<table class="table rank-table">
+        <colgroup><col class="col-rank"><col class="col-name"><col class="col-id"><col class="col-num"></colgroup>
+        <thead><tr><th>#</th><th>用户</th><th>QQ</th><th class="r">解析量（${esc(rangeLabel)}）</th></tr></thead>
+        <tbody>${topUsers.map((u, i) => `<tr>
+          <td class="gid">${i + 1}</td>
+          <td class="gname">${esc(u.userName || '未知用户')}</td>
+          <td class="gid">${esc(u.userId)}</td>
+          <td class="r"><b>${esc(u.total)}</b></td>
+        </tr>`).join('')}</tbody>
+      </table>`
+    : `<div class="empty">${esc(rangeLabel)}暂无个人统计</div>`
+}
+
+// ───────────────────────── 群组管理 ─────────────────────────
+
+async function loadGroups () {
+  try {
+    const res = await fetch(API('/kkkkkk-10086/groups'))
+    const data = await res.json()
+    if (!data.ok) throw new Error(data.error || '读取群列表失败')
+    GROUPS = data.data.groups || []
+    GROUP_INFO = { manualParseEnabled: data.data.manualParseEnabled, manualParseGroups: data.data.manualParseGroups || [] }
+    renderGroupTable()
+  } catch (e) {
+    document.getElementById('groupTableBox').innerHTML = `<div class="empty">读取群列表失败：${esc(e.message)}</div>`
+  }
+}
+
+function currentManualGroups () {
+  return toArray(VALUES.get('advanced.manualParseGroups')).map(String)
+}
+
+function renderGroupTable () {
+  const box = document.getElementById('groupTableBox')
+  if (!box) return
+  const manual = currentManualGroups()
+  const keyword = (document.getElementById('groupSearch')?.value || '').trim().toLowerCase()
+
+  if (!GROUPS.length) {
+    box.innerHTML = '<div class="empty">暂无已加入的群组（机器人未上线或未加入任何群）</div>'
+    return
+  }
+
+  const list = GROUPS.filter((g) => !keyword || g.group_id.includes(keyword) || (g.group_name || '').toLowerCase().includes(keyword))
+  if (!list.length) {
+    box.innerHTML = '<div class="empty">没有匹配的群组</div>'
+    return
+  }
+
+  box.innerHTML = `<table class="table">
+    <thead><tr><th>群号</th><th>群名</th><th>人数</th><th class="r">惰解析</th></tr></thead>
+    <tbody>${list.map((g) => {
+      const active = manual.includes(String(g.group_id))
+      return `<tr>
+        <td class="gid">${esc(g.group_id)}</td>
+        <td class="gname">${esc(g.group_name || '—')}</td>
+        <td class="gid">${g.member_count === null ? '—' : esc(g.member_count)}</td>
+        <td class="r"><button class="btn btn-mini ${active ? 'btn-danger' : ''}" onclick="toggleManualGroup('${esc(g.group_id)}')">${active ? '移出惰解析' : '加入惰解析'}</button></td>
+      </tr>`
+    }).join('')}</tbody>
+  </table>`
+}
+
+function toggleManualGroup (groupId) {
+  const next = currentManualGroups()
+  const id = String(groupId)
+  const result = next.includes(id) ? next.filter((v) => v !== id) : next.concat(id)
+  VALUES.set('advanced.manualParseGroups', result)
+  syncControls('advanced.manualParseGroups')
+  markDirty()
+  renderGroupTable()
+}
+
+// ───────────────────────── 侧面悬浮快速导航 ─────────────────────────
+
+// 平台解析页含多个平台的配置卡片，进入该页时在侧面给出锚点，方便长列表跳转
+const SIDE_NAV_TABS = new Set(['platform'])
+let sideNavAnchors = []
+
+const currentTab = () => document.querySelector('.tab.active')?.dataset.tab || 'overview'
+
+function renderSideNav (tab) {
+  const nav = document.getElementById('sideNav')
+  nav.innerHTML = ''
+  sideNavAnchors = []
+  const panel = SIDE_NAV_TABS.has(tab) ? document.getElementById('tab-' + tab) : null
+  const cards = panel ? Array.from(panel.querySelectorAll(':scope > .group')) : []
+  const items = cards
+    .map((card) => ({ card, title: card.querySelector('.group-head h2')?.textContent?.trim() || '' }))
+    .filter((it) => it.title)
+  if (items.length < 2) {
+    nav.classList.remove('show')
+    return
+  }
+  items.forEach((it) => {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'side-nav-item'
+    btn.textContent = it.title
+    btn.onclick = () => {
+      // 顶栏 + 吸顶快捷条的高度补偿，避免锚点被挡住
+      const top = it.card.getBoundingClientRect().top + window.scrollY - 76
+      window.scrollTo({ top: Math.max(top, 0), behavior: 'smooth' })
+    }
+    nav.appendChild(btn)
+    sideNavAnchors.push({ card: it.card, btn })
+  })
+  nav.classList.add('show')
+  syncSideNav()
+}
+
+function syncSideNav () {
+  if (!sideNavAnchors.length) return
+  const line = window.scrollY + 100
+  let active = 0
+  sideNavAnchors.forEach((it, i) => {
+    if (it.card.getBoundingClientRect().top + window.scrollY <= line) active = i
+  })
+  // 末尾卡片内容不足时无法顶到判定线（上一张也就没法完全离开屏幕），
+  // 因此只要划到底部就直接选中最后一项，点击最后一项也能正确高亮
+  const doc = document.documentElement
+  if (doc.scrollHeight > window.innerHeight + 4 && window.scrollY + window.innerHeight >= doc.scrollHeight - 4) {
+    active = sideNavAnchors.length - 1
+  }
+  sideNavAnchors.forEach((it, i) => it.btn.classList.toggle('active', i === active))
+}
+
+let sideNavTicking = false
+window.addEventListener('scroll', () => {
+  if (sideNavTicking || !sideNavAnchors.length) return
+  sideNavTicking = true
+  requestAnimationFrame(() => { syncSideNav(); sideNavTicking = false })
+}, { passive: true })
+
+// ───────────────────────── 页签 ─────────────────────────
+
+function switchTab (tab) {
+  document.querySelectorAll('.tab').forEach((btn) => btn.classList.toggle('active', btn.dataset.tab === tab))
+  document.querySelectorAll('.panel').forEach((panel) => panel.classList.toggle('active', panel.id === 'tab-' + tab))
+  const meta = TABS[tab] || TABS.overview
+  document.getElementById('pageTitle').textContent = meta.title
+  document.getElementById('pageSub').textContent = meta.sub
+  document.getElementById('savebar').classList.toggle('show', Object.keys(collectChanges()).length > 0)
+  renderSideNav(tab)
+}
+
+document.querySelectorAll('.tab').forEach((btn) => {
+  btn.onclick = () => switchTab(btn.dataset.tab)
+})
+
+// ───────────────────────── 趋势图：悬浮 / 触控提示 ─────────────────────────
+
+const chartTip = document.getElementById('chartTip')
+const TIP_PLATFORMS = [['douyin', '抖音'], ['bilibili', '哔哩哔哩'], ['kuaishou', '快手'], ['xiaohongshu', '小红书']]
+let chartTipKey = ''
+
+function hideChartTip () {
+  chartTipKey = ''
+  chartTip.classList.remove('show')
+}
+
+function showChartTip (node) {
+  const col = node?.closest?.('.col')
+  if (!col || !col.dataset.date) {
+    hideChartTip()
+    return
+  }
+  // 同一列内移动不重建/重排，避免 mousemove 高频触发导致卡顿
+  if (col.dataset.date === chartTipKey) return
+  chartTipKey = col.dataset.date
+  const total = Number(col.dataset.total || 0)
+  const rows = TIP_PLATFORMS
+    .map(([key, label]) => [key, label, Number(col.dataset[key] || 0)])
+    .filter(([, , value]) => value > 0)
+  chartTip.innerHTML = `<div class="tt-date">${esc(col.dataset.date)}</div>` +
+    (rows.length
+      ? rows.map(([key, label, value]) => `<div class="tt-row"><i style="background:${PLATFORM_COLORS[key]}"></i>${esc(label)}<b>${value}</b></div>`).join('')
+      : '<div class="tt-row">暂无解析</div>') +
+    `<div class="tt-row tt-total">合计<b>${total}</b></div>`
+
+  const bar = col.querySelector('.stack') || col
+  const rect = bar.getBoundingClientRect()
+  chartTip.classList.add('show')
+  const tipW = chartTip.offsetWidth
+  const tipH = chartTip.offsetHeight
+  const cx = Math.min(Math.max(rect.left + rect.width / 2, tipW / 2 + 6), window.innerWidth - tipW / 2 - 6)
+  chartTip.style.left = `${cx}px`
+  if (rect.top >= tipH + 12) {
+    chartTip.style.top = `${rect.top - 8}px`
+    chartTip.style.transform = 'translate(-50%, -100%)'
+  } else {
+    chartTip.style.top = `${rect.bottom + 8}px`
+    chartTip.style.transform = 'translate(-50%, 0)'
+  }
+}
+
+const trendBoxEl = document.getElementById('trendBox')
+trendBoxEl.addEventListener('mousemove', (e) => showChartTip(e.target))
+trendBoxEl.addEventListener('mouseleave', hideChartTip)
+trendBoxEl.addEventListener('touchstart', (e) => showChartTip(e.target), { passive: true })
+trendBoxEl.addEventListener('touchmove', (e) => {
+  const touch = e.touches[0]
+  if (touch) showChartTip(document.elementFromPoint(touch.clientX, touch.clientY))
+}, { passive: true })
+trendBoxEl.addEventListener('touchend', () => setTimeout(hideChartTip, 1400))
+window.addEventListener('scroll', hideChartTip, { passive: true })
+
+// ───────────────────────── 群组排行：时间维度 / 清除统计 ─────────────────────────
+
+document.querySelectorAll('#topRangeSeg .seg-btn').forEach((btn) => {
+  btn.onclick = () => {
+    if (btn.dataset.range === TOP_RANGE) return
+    TOP_RANGE = btn.dataset.range
+    document.querySelectorAll('#topRangeSeg .seg-btn').forEach((b) => b.classList.toggle('on', b === btn))
+    document.getElementById('topGroups').innerHTML = '<div class="empty">加载中…</div>'
+    document.getElementById('topUsers').innerHTML = '<div class="empty">加载中…</div>'
+    loadStats()
+  }
+})
+
+document.getElementById('clearStatsBtn').onclick = async () => {
+  if (!window.confirm('确定清除全部解析统计吗？\n累计解析量、覆盖群组、独立用户、14 天趋势和群组、个人排行都会被清空，且无法恢复。')) return
+  const btn = document.getElementById('clearStatsBtn')
+  btn.disabled = true
+  try {
+    const res = await fetch(API('/kkkkkk-10086/stats/reset'), { method: 'POST' })
+    const data = await res.json()
+    if (!data.ok) throw new Error(data.error || '清除失败')
+    toast('统计已清除', 'ok')
+    loadStats()
+  } catch (e) {
+    toast('清除失败：' + e.message, 'err')
+  } finally {
+    btn.disabled = false
+  }
+}
+
+// Bot 切换时同步刷新数据
+window.addEventListener('message', (e) => {
+  const d = e.data
+  if (!d || d.type !== 'bot-changed') return
+  loadStatus()
+  loadStats()
+  loadGroups()
+})
+
+// ───────────────────────── 启动 ─────────────────────────
+
+async function boot () {
+  try {
+    const res = await fetch(API('/kkkkkk-10086/config'))
+    const data = await res.json()
+    if (!data.ok) throw new Error(data.error || '读取配置失败')
+    SCHEMAS = data.data.schemas || []
+    CONFIG = data.data.config || {}
+    META = data.data.meta || {}
+
+    const groups = parseSchema(SCHEMAS)
+    for (const g of groups) {
+      for (const s of g.sections) {
+        for (const f of s.fields) {
+          const value = clone(getPath(CONFIG, f.field))
+          VALUES.set(f.field, value)
+          INITIAL.set(f.field, clone(value))
+        }
+      }
+    }
+
+    renderConfigTabs()
+    markDirty()
+    loadStatus()
+    loadStats()
+    loadGroups()
+  } catch (e) {
+    document.getElementById('statusDot').className = 'status-dot err'
+    document.getElementById('statusLabel').textContent = '加载失败'
+    document.getElementById('statusRows').innerHTML = `<div class="empty">读取配置失败：${esc(e.message)}</div>`
+  }
+}
+
+boot()
+</script>
+</body>
+</html>
