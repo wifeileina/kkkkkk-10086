@@ -35,7 +35,15 @@
     {{/if}}
 
     {{if video && video.sizeExceeded}}
+    {{if video.overLimitAllowed}}
+    <div class="size-exceed-hint">已按指令强制下载超限视频</div>
+    {{else if video.overLimitHint === 'all'}}
     <div class="size-exceed-hint">体积超限，继续下载请引用回复：<span class="se-kbd">xk解析</span></div>
+    {{else if video.overLimitHint === 'plain'}}
+    <div class="size-exceed-hint is-blocked">体积超限，已停止下载</div>
+    {{else if video.overLimitHint === 'command'}}
+    <div class="size-exceed-hint">体积超限，继续下载请引用回复：<span class="se-kbd">xk解析</span> 权限：{{video.overLimitPermLabel}}</div>
+    {{/if}}
     {{/if}}
 
     {{if showStats}}

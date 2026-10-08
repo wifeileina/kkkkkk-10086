@@ -94,10 +94,23 @@ const permissionOptions = [
 ]
 
 const sendContentOptions = [
-  option('信息图/提示', 'info'),
+  option('信息图', 'info'),
   option('评论图', 'comment'),
   option('视频', 'video'),
   option('图集/图片', 'image')
+]
+
+// 抖音独有「背景音乐」，B站独有「动态」，与各自平台的解析内容一一对应
+const douyinSendContentOptions = [
+  ...sendContentOptions,
+  option('背景音乐', 'bgm')
+]
+
+const bilibiliSendContentOptions = [
+  option('简介/信息图', 'info'),
+  option('评论图', 'comment'),
+  option('视频', 'video'),
+  option('动态', 'dynamic')
 ]
 
 const bilibiliQualityOptions = [
@@ -257,12 +270,13 @@ const schemas = [
   password('cookies.xiaohongshu', '小红书 Cookie', '登录 https://www.xiaohongshu.com/ 获取请求头中的 Cookie'),
 
   divider('全局开关'),
-  sw('app.videotool', '总开关', '视频解析工具总开关，修改后重启生效'),
-  sw('app.videoTool', '总开关（新版键）', '兼容 Karin 新配置名，建议与总开关保持一致'),
+  sw('app.videoTool', '总开关', '视频解析工具总开关，修改后重启生效'),
   sw('app.privateTool', '私聊解析', '关闭后私聊中的链接不做解析，群聊不受影响'),
   sw('app.defaulttool', '默认解析', '识别最高优先级，修改后重启生效'),
   num('app.priority', '解析优先级', 0, 114514, '', '默认解析关闭后生效，修改后重启生效'),
   sw('app.parseTip', '解析提示', '发送“检测到链接，开始解析”提示'),
+  sw('app.overLimitCommandParse', '超限指令解析', '开启后，使用解析指令（xk解析 / xk档位）可强制下载超过体积上限的视频'),
+  radio('app.overLimitCommandParsePermission', '超限解析权限', permissionOptions, '允许使用超限指令解析的身份，默认仅主人'),
   sw('app.EmojiReply', '表情回应', '适配器或平台不支持时可关闭'),
   sw('app.removeCache', '删除视频缓存', '自动删除下载到本地的视频缓存'),
   num('app.cacheRetentionMinutes', '缓存保存时间', 1, 10080, '分钟', '下载的视频/图片缓存保留时长，超时自动清理；需开启“删除视频缓存”'),
@@ -306,17 +320,8 @@ const schemas = [
 
   group('抖音配置'),
   divider('抖音解析'),
-  sw('douyin.douyintool', '抖音解析开关（旧版键）', '受总开关影响'),
   sw('douyin.switch', '抖音解析开关', '受总开关影响'),
-  select('douyin.douyinTip', '抖音解析选项（旧版键）', [
-    option('提示信息'),
-    option('背景音乐'),
-    option('评论图'),
-    option('视频'),
-    option('图集')
-  ], '', true),
-  select('douyin.sendContent', '发送内容', sendContentOptions.filter(item => item.value !== 'image'), '', true),
-  num('douyin.numcomments', '评论解析数量（旧版键）', 0, 9999, '条'),
+  select('douyin.sendContent', '发送内容', douyinSendContentOptions, '', true),
   num('douyin.numcomment', '评论解析数量', 0, 9999, '条'),
   num('douyin.subCommentLimit', '次级评论请求数量', 0, 100, '条'),
   num('douyin.subCommentDepth', '次级评论嵌套深度', 0, 10, '层'),
@@ -330,8 +335,7 @@ const schemas = [
   ]),
   sw('douyin.textMode', '文本模式', '开启后直接输出文本，关闭后渲染为图片'),
   radio('douyin.videoQuality', '视频画质偏好', videoQualityOptions),
-  num('douyin.maxAutoVideoSize', '自动画质最大视频大小', 0, 9999, 'MB'),
-  sw('douyin.volumePriority', '体积优先', '设置具体画质档位时，若该档位体积超过体积上限则自动下调到能发出的档位'),
+  num('douyin.maxAutoVideoSize', '视频体积上限', 0, 9999, 'MB'),
   radio('douyin.loginPerm', '扫码登录权限', permissionOptions),
   radio('douyin.videoInfoMode', '视频信息返回形式', [
     option('文本', 'text'),
@@ -362,22 +366,12 @@ const schemas = [
 
   group('哔哩哔哩'),
   divider('B站解析'),
-  sw('bilibili.bilibilitool', 'B站解析开关（旧版键）', '受总开关影响'),
   sw('bilibili.switch', 'B站解析开关', '受总开关影响'),
-  select('bilibili.bilibiliTip', 'B站解析选项（旧版键）', [
-    option('提示信息'),
-    option('简介'),
-    option('评论图'),
-    option('视频'),
-    option('动态')
-  ], '', true),
-  select('bilibili.sendContent', '发送内容', sendContentOptions.filter(item => item.value !== 'image'), '', true),
+  select('bilibili.sendContent', '发送内容', bilibiliSendContentOptions, '', true),
   select('bilibili.displayContent', '简介显示内容', displayContentOptions, '', true),
   sw('bilibili.videopriority', '优先保内容', '开启后优先保证上传成功，可能降低分辨率'),
   radio('bilibili.videoQuality', '视频画质偏好', bilibiliQualityOptions),
-  num('bilibili.maxAutoVideoSize', '自动画质最大视频大小', 0, 9999, 'MB'),
-  sw('bilibili.volumePriority', '体积优先', '设置具体画质档位时，若该档位体积超过体积上限则自动下调到能发出的档位'),
-  num('bilibili.bilibilinumcomments', '评论解析数量（旧版键）', 0, 9999, '条'),
+  num('bilibili.maxAutoVideoSize', '视频体积上限', 0, 9999, 'MB'),
   num('bilibili.numcomment', '评论解析数量', 0, 9999, '条'),
   sw('bilibili.realCommentCount', '显示真实评论数量'),
   sw('bilibili.commentImageCollection', '收集评论区图片'),
@@ -413,11 +407,8 @@ const schemas = [
 
   group('快手配置'),
   divider('快手解析'),
-  sw('kuaishou.kuaishoutool', '快手解析开关（旧版键）', '受总开关影响'),
   sw('kuaishou.switch', '快手解析开关', '受总开关影响'),
   sw('kuaishou.comment', '快手评论解析'),
-  sw('kuaishou.kuaishoutip', '快手解析提示'),
-  num('kuaishou.kuaishounumcomments', '快手评论数量（旧版键）', 0, 30, '条'),
   num('kuaishou.numcomment', '快手评论数量', 0, 30, '条'),
 
   group('小红书配置'),
@@ -426,8 +417,7 @@ const schemas = [
   select('xiaohongshu.sendContent', '发送内容', sendContentOptions, '', true),
   num('xiaohongshu.numcomment', '评论解析数量', 0, 9999, '条'),
   radio('xiaohongshu.videoQuality', '视频画质偏好', xiaohongshuQualityOptions),
-  num('xiaohongshu.maxAutoVideoSize', '自动画质最大视频大小', 0, 9999, 'MB'),
-  sw('xiaohongshu.volumePriority', '体积优先', '设置具体画质档位时，若该档位体积超过体积上限则自动下调到能发出的档位'),
+  num('xiaohongshu.maxAutoVideoSize', '视频体积上限', 0, 9999, 'MB'),
 
   group('上传配置'),
   divider('上传与下载'),
@@ -473,9 +463,11 @@ const schemas = [
   group('高级设置'),
   divider('仲裁机制'),
   sw('app.arbitrationEnabled', '仲裁机制', '群内有多个机器人时，仅首个贴上表情的机器人解析，其余检测到抢占表情后自动跳过'),
+  tags('app.arbitrationDetectEmojis', '检测的其他表情', '消息已存在这些表情时视为被其他机器人抢占，将跳过解析；小表情ID或Unicode码点均可'),
+  divider('自定义表情'),
   input('app.arbitrationFirstEmoji', '贴上的首个表情', '解析前贴到消息上的抢占标识。可填 EYES/PROCESSING/SUCCESS/ERROR，或表情ID：小表情如 76(赞)/324(对号)；Unicode码点如 128064(👀)（会自动带 emoji_type=2）。被抢占时也会贴出此表情'),
   input('app.arbitrationWorkingEmoji', '工作中的标签', '胜出并开始解析时额外贴出的标签表情，表示正在解析。被抢占时只贴首个表情、不贴此标签。可填 EYES/PROCESSING/SUCCESS/ERROR 或表情ID'),
-  tags('app.arbitrationDetectEmojis', '检测的其他表情', '消息已存在这些表情时视为被其他机器人抢占，将跳过解析；小表情ID或Unicode码点均可'),
+  input('app.parseFailedEmoji', '解析失败表情', '解析失败（作品不存在/接口无数据/类型不支持等）时贴出的表情回应。可填 EYES/PROCESSING/SUCCESS/ERROR，或表情ID：小表情如 5(流泪)/76(赞)；Unicode码点如 128078(👎)（会自动带 emoji_type=2）'),
   divider('并发解析'),
   num('douyin.parseConcurrency', '平台解析并发数', 1, 10, '', '全平台生效：控制抖音/B站/快手/小红书 群聊解析时，同时进行的平台API解析请求总数（各平台共享同一队列，合计不超过此值）。调高可加速多群连续解析，但可能触发平台限流；调低更稳。注意：抖音定时推送不受此限制'),
   num('upload.downloadConcurrency', '视频下载分片数', 2, 8, '路', '全平台生效：控制抖音/B站/快手/小红书 视频下载时的分片并发路数。仅对支持 Range 请求的大文件生效，不支持时自动回退单线程。建议保持默认 4 路，过高可能触发服务器限流'),

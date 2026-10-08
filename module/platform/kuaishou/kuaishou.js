@@ -17,7 +17,7 @@ export default class KuaiShou extends Base {
       await this.e.reply('不支持解析的视频')
       return true
     }
-    ;(Config.app.parseTip || Config.kuaishou.kuaishoutip) && await this.e.reply('检测到快手链接，开始解析')
+    ;Config.app.parseTip && await this.e.reply('检测到快手链接，开始解析')
     const video_url = videoDetail.photo.photoUrl
     const transformedData = Object.entries(emojiList).map(([ name, path ]) => {
       return { name, url: `https:${path}` }

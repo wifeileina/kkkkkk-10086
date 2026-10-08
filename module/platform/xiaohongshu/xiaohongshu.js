@@ -7,6 +7,7 @@ import Common from '../../utils/Common.js'
 import { processImageUrl } from '../../utils/ImageHelper.js'
 import { makeForwardMsgBatched } from '../../utils/ForwardMsg.js'
 import { markParseFailed, markParseLimited } from '../../utils/EmojiReaction.js'
+import { canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, overLimitTipSuffix, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent } from '../../utils/ParsePermission.js'
 import { buildLivePhotoMessages, buildLivePhotoTipMessage, pickXiaohongshuImageUrl } from './livePhoto.js'
 import { buildXiaohongshuEmojiList, buildXiaohongshuText } from './comments.js'
 import { xiaohongshuSign, createBoundXiaohongshuFetcher } from '@ikenxuan/amagi'
@@ -62,12 +63,12 @@ const getVideoUrl = (card, stream) =>
 let xhsSizeExceeded = false
 let xhsSizeLimitMb = 0
 let xhsExceedBytes = 0
-// 体积优先：具体档位体积超限时已自动下调档位
+// 体积上限下探：具体档位体积超限时已自动下调档位
 let xhsVolumeAdjusted = false
 // 设定档位的体积（MB），供信息图显示“实际解析体积 设定档位体积/限制体积”
 let xhsSetSizeMb = 0
 
-const selectVideoStream = (streamData) => {
+const selectVideoStream = (streamData, bypass = false) => {
   // 无 size 字段时按编解码优先级顺序保留原始顺序，避免已按码流大小降序排序
   let streams = collectVideoStreams(streamData)
   if (!streams.length) return null
@@ -93,9 +94,10 @@ const selectVideoStream = (streamData) => {
     const sized = streams.filter(s => s.size != null)
     xhsSizeExceeded = sized.length > 0 && sized.every(s => s.size > limit)
     if (xhsSizeExceeded) {
-      // 所有清晰度均超过体积上限：取最小清晰度体积用于信息图标红，并返回 null 由调用方拦截
+      // 所有清晰度均超过体积上限：取最小清晰度体积用于信息图标红；未获超限指令权限时返回 null 由调用方拦截
       xhsExceedBytes = sized.reduce((a, b) => ((a.size || 0) < (b.size || 0) ? a : b)).size || 0
-      return null
+      // 已获超限指令权限：返回最大清晰度档供强制下载，信息图仍保留超限提示
+      return bypass ? streams[0] : null
     }
     xhsExceedBytes = 0
     return streams.find(stream => (stream.size || 0) <= limit) || streams.at(-1)
@@ -111,8 +113,8 @@ const selectVideoStream = (streamData) => {
     if (stream) return stream
   }
 
-  // 体积优先：设置具体档位时，若该档位体积超过 maxAutoVideoSize 则自动下调到能发出的档位
-  if (Config.xiaohongshu.volumePriority && quality !== 'hdr') {
+  // 体积上限下探：设置具体档位时，若该档位体积超过 maxAutoVideoSize 则自动下调到能发出的档位
+  if (quality !== 'hdr') {
     xhsSizeLimitMb = Config.xiaohongshu.maxAutoVideoSize || 50
     const vpLimit = xhsSizeLimitMb * 1024 * 1024
     const sized = streams.filter(s => s.size != null)
@@ -251,7 +253,13 @@ export class Xiaohongshu extends Base {
       }
     }
 
-    if (sendContent.includes('info')) {
+    const xhsInfoEnabled = sendContent.includes('info')
+    // 指令继续解析（如体积超限后回复「xk解析」）时，120s 内同一笔记不再重复发送信息图
+    const xhsInfoSkip = xhsInfoEnabled && shouldSkipInfoGraphic(this.e, card.note_id || data.note_id)
+    if (xhsInfoSkip) {
+      logger.info('信息图', `指令解析：120s 内已发送过信息图，跳过重复发送 (${card.note_id || data.note_id})`)
+    }
+    if (xhsInfoEnabled && !xhsInfoSkip) {
       const noteDesc = buildXiaohongshuText(card.desc, emojiData, [], { stripTopicMarker: true })
       // 提取 #话题 标签（小红书用双 # 包裹，可含空格），正文去除标签并清理多余空格
       const hashtags = [...new Set((noteDesc.match(/#[^#\n\s]+(?:[ \u00A0]+[^#\n\s]+)*#/g) || [])
@@ -268,7 +276,7 @@ export class Xiaohongshu extends Base {
       xhsVolumeAdjusted = false
       xhsSetSizeMb = 0
       if (card?.video) {
-        const stream = selectVideoStream(card.video.media?.stream)
+        const stream = selectVideoStream(card.video.media?.stream, canBypassSizeLimit(this.e))
         currentVideoBytes = stream?.size || 0
         const codecMap = { EF5: 'H.265', EF4: 'H.264', EF6: 'H.266', EF7: 'AV1' }
         const rawCodec = stream?.video_codec || ''
@@ -282,7 +290,11 @@ export class Xiaohongshu extends Base {
           sizeExceeded: xhsSizeExceeded,
           sizeLimit: xhsSizeLimitMb,
           sizeSet: xhsSetSizeMb ? xhsSetSizeMb.toFixed(2) : '',
-          volumeAdjusted: xhsVolumeAdjusted
+          volumeAdjusted: xhsVolumeAdjusted,
+          overLimitAllowed: canBypassSizeLimit(this.e),
+          overLimitHint: overLimitHintMode(),
+          overLimitPermLabel: overLimitPermissionLabel(),
+          commandParse: isCommandParse(this.e)
         }
       }
       const noteInfoImg = await Render('xiaohongshu/noteInfo', {
@@ -303,6 +315,7 @@ export class Xiaohongshu extends Base {
         video,
         })
       await this.e.reply(noteInfoImg)
+      markInfoGraphicSent(this.e, card.note_id || data.note_id)
     }
 
     if (sendContent.includes('comment')) {
@@ -365,10 +378,10 @@ export class Xiaohongshu extends Base {
     }
 
     if (card.video && sendContent.includes('video')) {
-      const stream = selectVideoStream(card.video.media?.stream)
-      if (xhsSizeExceeded) {
+      const stream = selectVideoStream(card.video.media?.stream, canBypassSizeLimit(this.e))
+      if (xhsSizeExceeded && !canBypassSizeLimit(this.e)) {
         markParseLimited(this.e, '体积超限')
-        await this.e.reply(`解析到的视频所有清晰度均超过 ${xhsSizeLimitMb}MB，已停止下载\n当前体积上限：${xhsSizeLimitMb}MB`, { reply: true })
+        await this.e.reply(`解析到的视频所有清晰度均超过 ${xhsSizeLimitMb}MB，已停止下载\n当前体积上限：${xhsSizeLimitMb}MB` + overLimitTipSuffix(), { reply: true })
         return true
       }
       const videoUrl = getVideoUrl(card, stream)

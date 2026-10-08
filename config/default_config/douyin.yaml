@@ -1,31 +1,19 @@
 # 抖音解析开关，单独开关，受「总开关」影响
-douyintool: true
-
-# 抖音解析开关（新项目配置名，兼容 douyintool）
 switch: true
 
 # 抖音解析并发数，同时最多解析的作品数量，超出自动排队等待，避免被抖音限流
 parseConcurrency: 2
 
-# 抖音解析可选
-douyinTip:
-  - 提示信息
-  - 评论图
-  - 视频
-  - 背景音乐
-  - 图集
-
-# 解析时发送的内容（新项目配置名）
-# 可选值：info、comment、video
+# 解析时发送的内容
+# 可选值：info(信息图)、comment(评论图)、video(视频)、image(图集)、bgm(背景音乐)
 sendContent:
   - info
   - comment
   - video
+  - image
+  - bgm
 
 # 抖音评论数量，范围1~无限条
-numcomments: 5
-
-# 抖音评论数量（新项目配置名，兼容 numcomments）
 numcomment: 5
 
 # 次级评论请求数量
@@ -55,11 +43,8 @@ autoResolution: true
 # 视频画质偏好设置，可选值：adapt、540p、720p、1080p、2k、4k
 videoQuality: 4k
 
-# 自动画质模式下可接受的最大视频大小（单位：MB）
+# 视频体积上限（单位：MB）：自动解析分辨率开启时，所选清晰度超过该体积会自动下调到能发出的最高清晰度档位
 maxAutoVideoSize: 50
-
-# 体积优先：设置具体画质档位时，若该档位体积超过 maxAutoVideoSize 则自动下调到能发出的档位
-volumePriority: false
 
 # 谁可以触发扫码登录
 loginPerm: master

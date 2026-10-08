@@ -71,10 +71,19 @@ const scheduleImageDelete = (filePath) => {
   }, (Config.app.cacheRetentionMinutes || 10) * 60 * 1000)
 }
 
-export const processImageUrl = async (imageUrl, title, index, headers = {}) => {
+/**
+ * 处理网络图片
+ * @param {string} imageUrl 图片地址
+ * @param {string} title 标题（作为本地文件名）
+ * @param {number} [index] 序号
+ * @param {object} [headers] 请求头
+ * @param {'url'|'file'|'base64'} [modeOverride] 强制发送方式，缺省时读取配置
+ * @returns {Promise<string>}
+ */
+export const processImageUrl = async (imageUrl, title, index, headers = {}, modeOverride) => {
   if (!imageUrl) return imageUrl
 
-  const mode = Config.upload?.imageSendMode || Config.app?.imageSendMode || 'url'
+  const mode = modeOverride || Config.upload?.imageSendMode || Config.app?.imageSendMode || 'url'
   if (mode === 'url' || imageUrl.startsWith('base64://') || imageUrl.startsWith('file://')) return imageUrl
 
   try {

@@ -34,7 +34,7 @@ const APP_UPLOAD_KEYS = [
 
 /**
  * @typedef {Object} AppConfig
- * @property {boolean} [AppConfig.videotool] 视频解析工具总开关，修改后重启生效
+ * @property {boolean} [AppConfig.videoTool] 视频解析工具总开关，修改后重启生效
  * @property {boolean} [AppConfig.defaulttool] 默认解析，即识别最高优先级，修改后重启生效
  * @property {boolean} [AppConfig.removeCache] 缓存删除，非必要不修改！
  * @property {number} [AppConfig.cacheRetentionMinutes] 缓存保存时间（分钟），开启“删除视频缓存”后生效
@@ -48,6 +48,9 @@ const APP_UPLOAD_KEYS = [
  * @property {boolean} [AppConfig.RemoveWatermark] 渲染图片是否移除底部版本信息
  * @property {number} [AppConfig.RenderWaitTime] 渲染图片等待时间，单位：秒
  * @property {boolean} [AppConfig.EmojiReply] 表情回应开关
+ * @property {boolean} [AppConfig.privateTool] 私聊解析开关，关闭后私聊中的链接不做解析
+ * @property {boolean} [AppConfig.overLimitCommandParse] 超限指令解析，开启后可用解析指令强制下载超限视频
+ * @property {'all'|'admin'|'master'|'group.owner'|'group.admin'} [AppConfig.overLimitCommandParsePermission] 超限指令解析权限，与推送权限选项一致
  * @property {boolean} [AppConfig.parseTip] 解析提示开关
  * @property {boolean} [AppConfig.fakeForward] 是否伪造合并转发消息
  * @property {string[]} [AppConfig.errorLogSendTo] 错误日志接收者
@@ -69,19 +72,15 @@ const APP_UPLOAD_KEYS = [
 
 /**
  * @typedef {Object} DouyinConfig
- * @property {boolean} [DouyinConfig.douyintool] 抖音解析开关
- * @property {boolean} [DouyinConfig.switch] 抖音解析开关（新配置名）
- * @property {('提示信息'|'评论图'|'视频'|'背景音乐'|'图集')[]} [DouyinConfig.douyinTip] 抖音解析可选列表 - 可选值：提示信息、评论图、视频、背景音乐、图集
- * @property {('info'|'comment'|'video')[]} [DouyinConfig.sendContent] 抖音解析发送内容
- * @property {number} [DouyinConfig.numcomments] 抖音评论数量
- * @property {number} [DouyinConfig.numcomment] 抖音评论数量（新配置名）
+ * @property {boolean} [DouyinConfig.switch] 抖音解析开关
+ * @property {('info'|'comment'|'video'|'image'|'bgm')[]} [DouyinConfig.sendContent] 抖音解析发送内容 - 可选值：info(信息图)、comment(评论图)、video(视频)、image(图集)、bgm(背景音乐)
+ * @property {number} [DouyinConfig.numcomment] 抖音评论数量
  * @property {number} [DouyinConfig.parseConcurrency] 抖音解析并发数，超出自动排队等待
  * @property {boolean} [DouyinConfig.realCommentCount] 评论图是否显示真实评论数量
  * @property {boolean} [DouyinConfig.sendHDrecord] 图集BGM是否使用高清语音发送
  * @property {boolean} [DouyinConfig.autoResolution] 根据「视频拦截阈值」自动选择合适的分辨率
  * @property {'540p'|'720p'|'1080p'|'2k'|'4k'|'adapt'} [DouyinConfig.videoQuality] 视频画质偏好
- * @property {number} [DouyinConfig.maxAutoVideoSize] 自动画质最大大小
- * @property {boolean} [DouyinConfig.volumePriority] 体积优先：具体档位超限时自动下调档位
+ * @property {number} [DouyinConfig.maxAutoVideoSize] 视频体积上限（MB），超出自动下调档位
  * @property {'text'|'image'} [DouyinConfig.videoInfoMode] 视频信息返回形式
  * @property {('cover'|'title'|'author'|'stats')[]} [DouyinConfig.displayContent] 视频信息显示内容
  * @property {boolean} [DouyinConfig.burnDanmaku] 是否烧录弹幕
@@ -104,14 +103,13 @@ const APP_UPLOAD_KEYS = [
 
 /**
  * @typedef {Object} BilibiliConfig
- * @property {boolean} [BilibiliConfig.bilibilitool] B站解析开关
- * @property {('提示信息'|'简介'|'评论图'|'视频'|'动态')[]} [BilibiliConfig.bilibiliTip] B站解析可选列表 - 可选值：提示信息、简介、评论图、视频、动态
- * @property {number} [BilibiliConfig.bilibilinumcomments] B站评论数量
+ * @property {boolean} [BilibiliConfig.switch] B站解析开关
+ * @property {('info'|'comment'|'video'|'dynamic')[]} [BilibiliConfig.sendContent] B站解析发送内容 - 可选值：info(简介/信息图)、comment(评论图)、video(视频)、dynamic(动态)
+ * @property {number} [BilibiliConfig.numcomment] B站评论数量
  * @property {boolean} [BilibiliConfig.realCommentCount] 评论图是否显示真实评论数量
  * @property {boolean} [BilibiliConfig.videopriority] 解析视频是否优先保内容
  * @property {number} [BilibiliConfig.videoQuality] 视频画质偏好设置
- * @property {number} [BilibiliConfig.maxAutoVideoSize] 自动画质模式下可接受的最大视频大小
- * @property {boolean} [BilibiliConfig.volumePriority] 体积优先：具体档位超限时自动下调档位
+ * @property {number} [BilibiliConfig.maxAutoVideoSize] 视频体积上限（MB），超出自动下调档位
  * @property {'text'|'image'} [BilibiliConfig.videoInfoMode] 视频信息返回形式
  * @property {string[]} [BilibiliConfig.displayContent] 视频解析时简介显示的内容
  * @property {boolean} [BilibiliConfig.showDanmakuInVideoInfo] 视频信息图片是否展示高频弹幕
@@ -152,9 +150,9 @@ const APP_UPLOAD_KEYS = [
 
 /**
  * @typedef {Object} KuaishouConfig
- * @property {boolean} [KuaishouConfig.kuaishoutool] 快手解析开关
- * @property {boolean} [KuaishouConfig.kuaishoutip] 快手解析提示开关
- * @property {number} [KuaishouConfig.kuaishounumcomments] 快手评论数量
+ * @property {boolean} [KuaishouConfig.switch] 快手解析开关
+ * @property {boolean} [KuaishouConfig.comment] 快手评论解析
+ * @property {number} [KuaishouConfig.numcomment] 快手评论数量
  */
 
 /**
@@ -163,8 +161,7 @@ const APP_UPLOAD_KEYS = [
  * @property {('info'|'image'|'video'|'comment')[]} [XiaohongshuConfig.sendContent] 小红书解析发送内容
  * @property {number} [XiaohongshuConfig.numcomment] 小红书评论数量
  * @property {'540p'|'720p'|'1080p'|'2k'|'4k'|'adapt'|'hdr'} [XiaohongshuConfig.videoQuality] 视频画质偏好
- * @property {number} [XiaohongshuConfig.maxAutoVideoSize] 自动画质最大大小
- * @property {boolean} [XiaohongshuConfig.volumePriority] 体积优先：具体档位超限时自动下调档位
+ * @property {number} [XiaohongshuConfig.maxAutoVideoSize] 视频体积上限（MB），超出自动下调档位
  */
 
 /**
@@ -292,7 +289,7 @@ class Cfg {
    * @example
    * // 获取应用配置
    * const appConfig = Config.app
-   * console.log(appConfig.videotool)      // 访问视频解析工具总开关
+   * console.log(appConfig.videoTool)      // 访问视频解析工具总开关
    * console.log(appConfig.defaulttool)    // 访问默认解析开关
    * console.log(appConfig.removeCache)    // 访问缓存删除设置
    * console.log(appConfig.priority)       // 访问优先级设置
@@ -328,11 +325,11 @@ class Cfg {
    * @example
    * // 获取抖音配置
    * const douyinConfig = Config.douyin
-   * console.log(douyinConfig.douyintool)     // 访问抖音解析开关
-   * console.log(douyinConfig.douyinTip)      // 访问抖音解析可选列表
-   * console.log(douyinConfig.numcomments)    // 访问评论数量设置
-   * console.log(douyinConfig.commentsimg)    // 访问评论图设置
-   * console.log(douyinConfig.detailMusic)    // 访问背景音乐设置
+   * console.log(douyinConfig.switch)        // 访问抖音解析开关
+   * console.log(douyinConfig.sendContent)    // 访问抖音解析发送内容
+   * console.log(douyinConfig.numcomment)     // 访问评论数量设置
+   * console.log(douyinConfig.commentImageCollection) // 访问评论区图片收集设置
+   * console.log(douyinConfig.liveImageMergeMode)     // 访问 Live 图 BGM 合并模式
    * console.log(douyinConfig.sendHDrecord)   // 访问高清语音设置
    * console.log(douyinConfig.push)           // 访问推送配置
    */
@@ -347,9 +344,9 @@ class Cfg {
    * @example
    * // 获取B站配置
    * const bilibiliConfig = Config.bilibili
-   * console.log(bilibiliConfig.bilibilitool)        // 访问B站解析开关
-   * console.log(bilibiliConfig.bilibiliTip)         // 访问B站解析可选列表
-   * console.log(bilibiliConfig.bilibilinumcomments) // 访问评论数量设置
+   * console.log(bilibiliConfig.switch)              // 访问B站解析开关
+   * console.log(bilibiliConfig.sendContent)         // 访问B站解析发送内容
+   * console.log(bilibiliConfig.numcomment)          // 访问评论数量设置
    * console.log(bilibiliConfig.senddynamicvideo)    // 访问动态视频设置
    * console.log(bilibiliConfig.videopriority)       // 访问视频优先级设置
    * console.log(bilibiliConfig.videoQuality)        // 访问视频画质设置
@@ -381,8 +378,9 @@ class Cfg {
    * @example
    * // 获取快手配置
    * const kuaishouConfig = Config.kuaishou
-   * console.log(kuaishouConfig.comments)     // 访问评论设置
-   * console.log(kuaishouConfig.videoQuality) // 访问视频清晰度设置
+   * console.log(kuaishouConfig.switch)       // 访问快手解析开关
+   * console.log(kuaishouConfig.comment)      // 访问评论解析设置
+   * console.log(kuaishouConfig.numcomment)   // 访问评论数量设置
    */
   get kuaishou() {
     return this.getDefOrConfig('kuaishou')

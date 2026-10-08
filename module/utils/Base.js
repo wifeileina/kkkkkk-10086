@@ -3,6 +3,8 @@ import { getBilibiliData as fetchBilibiliData } from '../platform/bilibili/api.j
 import { getDouyinData as fetchDouyinData } from '../platform/douyin/api.js'
 import { Networks, baseHeaders } from './Networks.js'
 import { createTempVideoTitle } from './DownloadSupport.js'
+import { canBypassSizeLimit } from './ParsePermission.js'
+import { markParseFailed } from './EmojiReaction.js'
 import { getCachedVideo, setCachedVideo, runSingleFlight } from './ResourceCache.js'
 import { mergeFile } from './FFmpeg.js'
 import cfg from '../../../../lib/config/config.js'
@@ -30,8 +32,8 @@ const isUrlBareFetchable = async (url) => {
   }
 }
 
-// 同一视频并发转发到多群时共用同一份本地文件，NapCat 端会为同一文件生成同一张缩略图并读写同一路径，
-// 并发上传会撞 Windows 文件锁（EBUSY），因此按文件路径串行化真正的上传步骤
+// 同一视频并发转发到多群时，NapCat 端会按视频内容生成同一张缩略图并读写同一路径，
+// 无论走 URL 直发还是本地文件上传都会撞 Windows 文件锁（EBUSY），因此按视频内容标识串行化真正的发送步骤
 const videoUploadLocks = new Map()
 const withVideoUploadLock = (key, fn) => {
   const prev = videoUploadLocks.get(key) || Promise.resolve()
@@ -41,6 +43,58 @@ const withVideoUploadLock = (key, fn) => {
   return cur.finally(() => {
     if (videoUploadLocks.get(key) === tail) videoUploadLocks.delete(key)
   })
+}
+
+// URL 直发与本地文件上传对同一视频会命中同一张缩略图，必须共用同一把锁，故统一按视频链接作 key
+const videoLockKey = (videoUrl, fallbackPath) => (videoUrl ? `video:${videoUrl}` : `file:${fallbackPath}`)
+
+// EBUSY：NapCat 同视频缩略图并发撞锁；rich media transfer failed：QQ 富媒体上传瞬时失败/风控——两者都可短重试
+const isRetriableVideoError = (error) =>
+  /EBUSY|resource busy or locked|rich media transfer failed/i.test(String(error?.message || error))
+
+// 串行 + 短重试地发送视频段。e.reply 会把错误吞成 { error: [err] } 而不抛出，
+// 因此「抛出的异常」和「被吞进返回值的错误」两种失败形态都要识别并重试。
+const sendVideoWithRetry = async (lockKey, sendFn) => {
+  return await withVideoUploadLock(lockKey, async () => {
+    for (let attempt = 0; ; attempt++) {
+      let status
+      try {
+        status = await sendFn()
+      } catch (error) {
+        if (!isRetriableVideoError(error) || attempt >= 3) throw error
+        logger.warn(`视频发送遇上传占用/富媒体失败，${attempt + 1}秒后重试`)
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+        continue
+      }
+      if (status?.message_id) return status
+      const swallowed = status?.error?.[0] || status?.error
+      if (isRetriableVideoError(swallowed) && attempt < 3) {
+        logger.warn(`视频发送遇上传占用/富媒体失败，${attempt + 1}秒后重试`)
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
+        continue
+      }
+      return status
+    }
+  })
+}
+
+// 群文件上传大文件可能远超适配器默认超时（OneBotv11 为 60s），超时会 terminate 整条连接；
+// 上传期间临时放宽该适配器超时，用引用计数保证并发上传不会互相提前还原
+const adapterTimeoutBumps = new WeakMap()
+const bumpAdapterTimeout = (adapter, timeout) => {
+  if (!adapter || typeof adapter.timeout !== 'number') return () => {}
+  const state = adapterTimeoutBumps.get(adapter) || { count: 0, base: adapter.timeout }
+  if (state.count === 0) state.base = adapter.timeout
+  state.count++
+  adapterTimeoutBumps.set(adapter, state)
+  adapter.timeout = Math.max(state.base, timeout)
+  return () => {
+    state.count--
+    if (state.count <= 0) {
+      adapterTimeoutBumps.delete(adapter)
+      adapter.timeout = state.base
+    }
+  }
 }
 
 const buildApiErrorImage = async (platform, method, err) => {
@@ -432,12 +486,15 @@ const sendVideoUrl = async (e, videoUrl, options) => {
 
   try {
     const videoMessage = segment.video(videoUrl)
-    const status = isActiveMessage
-      ? await target?.sendMsg(videoMessage || videoUrl)
-      : await e.reply(videoMessage || videoUrl)
+    // 走 target.sendMsg 而非 e.reply：框架的 e.reply 会把失败在 loader 层打成 ERROR 级「发送消息错误」，
+    // 而 URL 直发失败（如抖音直链对裸抓取返回 403）是可恢复的——随后会回退本地下载上传，故自行捕获并降噪
+    const send = isActiveMessage
+      ? () => target?.sendMsg(videoMessage || videoUrl)
+      : () => (target?.sendMsg ? target.sendMsg(videoMessage || videoUrl) : e.reply(videoMessage || videoUrl))
+    const status = await sendVideoWithRetry(videoLockKey(videoUrl, videoUrl), send)
     return !!status?.message_id
   } catch (error) {
-    logger.warn(`视频URL发送失败，回退本地下载上传: ${error instanceof Error ? error.message : String(error)}`)
+    logger.debug(`视频URL直发失败，回退本地下载上传: ${error instanceof Error ? error.message : String(error)}`)
     return false
   }
 }
@@ -498,8 +555,12 @@ export const uploadFile = async (e, file, videoUrl, options) => {
     return false
   }
 
-  // 确定上传方式
-  const useGroupFile = Config.upload?.usegroupfile && newFileSize > (Config.upload.groupfilevalue || 100)
+  // 视频消息硬性体积上限：超过后 send_msg 必然失败/超时（NapCat 会 terminate 连接），
+  // 故无论「使用群文件上传」开关是否开启，一律强制改走群文件，避免大文件走消息上传被卡死
+  const msgSizeLimit = ['LagrangeCore', 'Lagrange.OneBot', 'OneBotv11', 'OneBot11', 'ICQQ'].includes(botAdapter) ? 102 : 75
+  const useGroupFile = newFileSize > msgSizeLimit
+    || options?.useGroupFile === true
+    || (Config.upload?.usegroupfile && newFileSize > (Config.upload.groupfilevalue || 100))
   if (options) options.useGroupFile = useGroupFile
 
   // 文件处理
@@ -523,39 +584,37 @@ export const uploadFile = async (e, file, videoUrl, options) => {
       : e.isGroup ? e.group : e.friend
 
     if (useGroupFile) {
-      return await withVideoUploadLock(file.filepath, async () => {
-        await (botAdapter === 'ICQQ'
-          ? target.fs?.upload(File)
-          : ['LagrangeCore', 'OneBotv11', 'Lagrange.OneBot'].includes(botAdapter)
-            ? target.sendFile?.(File)
-            : target.sendMsg?.(segment.file(File)))
-        return true
-      })
-    } else {
-      return await withVideoUploadLock(file.filepath, async () => {
-        // Windows 端 NapCat 为同一视频生成同一缩略图，并发上传会撞文件锁(EBUSY)，串行锁之外再加短重试兜底
-        for (let attempt = 0; ; attempt++) {
-          try {
-            const status = isActiveMessage
-              ? await target?.sendMsg(segment.video(File) || videoUrl)
-              : await e.reply(segment.video(File) || videoUrl)
-            const ok = !!status?.message_id
-            return ok
-          } catch (error) {
-            // EBUSY：NapCat 同视频缩略图并发撞锁；rich media transfer failed：QQ 富媒体上传瞬时失败/风控——两者都可短重试
-            const retriable = /EBUSY|resource busy or locked|rich media transfer failed/i.test(String(error?.message || error))
-            if (!retriable || attempt >= 2) throw error
-            logger.warn(`视频发送遇上传占用/富媒体失败，${attempt + 1}秒后重试`)
-            await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)))
-          }
+      return await withVideoUploadLock(videoLockKey(videoUrl, file.filepath), async () => {
+        // 群文件上传大文件耗时可能远超适配器默认 60s 超时；一旦超时适配器会 terminate 整条连接
+        // （日志表现为「请求超时」+ 后续回包变「未知消息」），故上传期间临时放宽该适配器超时
+        const releaseTimeout = bumpAdapterTimeout(e?.bot?.adapter, 600000)
+        try {
+          await (botAdapter === 'ICQQ'
+            ? target.fs?.upload(File)
+            : ['LagrangeCore', 'OneBotv11', 'Lagrange.OneBot'].includes(botAdapter)
+              ? target.sendFile?.(File)
+              : target.sendMsg?.(segment.file(File)))
+          return true
+        } finally {
+          releaseTimeout()
         }
       })
+    } else {
+      // 与 URL 直发共用同一把锁；e.reply 会吞掉错误，故重试逻辑需识别被吞的错误（见 sendVideoWithRetry）
+      const status = await sendVideoWithRetry(
+        videoLockKey(videoUrl, file.filepath),
+        () => isActiveMessage ? target?.sendMsg(segment.video(File) || videoUrl) : e.reply(segment.video(File) || videoUrl)
+      )
+      // 重试后仍未发出：属真实发送失败（非体积等规则限制），标记解析失败以便贴哭泣表情
+      if (!status?.message_id) markParseFailed(e, '视频发送失败')
+      return !!status?.message_id
     }
   } catch (error) {
     if (options && options.active === false) {
       await e.reply('视频文件上传失败' + JSON.stringify(error, null, 2))
     }
     logger.error('视频文件上传错误,' + String(error))
+    markParseFailed(e, '视频发送失败')
     return false
   } finally {
     Config.app.removeCache && logger.info(`文件 ${file.filepath} 将在 ${Config.app.cacheRetentionMinutes || 10} 分钟后删除`) && setTimeout(() => Common.removeFile(file.filepath), (Config.app.cacheRetentionMinutes || 10) * 60 * 1000)
@@ -585,7 +644,7 @@ export const downloadVideo = async (e, downloadOpt, uploadOpt) => {
     logger.warn('获取视频大小失败，跳过大小限制检查:', error)
   }
 
-  if (Config.upload.usefilelimit && Config.upload.filelimit && fileSize > Config.upload.filelimit) {
+  if (Config.upload.usefilelimit && Config.upload.filelimit && fileSize > Config.upload.filelimit && !canBypassSizeLimit(e)) {
     const message = `视频：「${downloadOpt.title.originTitle ?? 'Error: 文件名获取失败'}」大小 (${fileSizeInMB} MB) 超出最大限制（设定值：${Config.upload.filelimit} MB），已取消上传`
     if (uploadOpt?.active && uploadOpt?.activeOption) {
       await Bot?.[uploadOpt.activeOption.uin]?.pickGroup(uploadOpt.activeOption.group_id)?.sendMsg(message)
@@ -596,13 +655,20 @@ export const downloadVideo = async (e, downloadOpt, uploadOpt) => {
   }
 
   const botAdapter = new Base(e).botadapter
-  const canSendRemoteVideo = downloadOpt.video_url && !uploadOpt?.forceLocal && !Config.upload.compress && (botAdapter === 'QQBot' || Config.upload.videoSendMode === 'url')
+  // 超过视频消息硬性上限的影片走 URL 直发会长时间无回包（NapCat 抓取+上传需数分钟），
+  // 触发 60s 超时被误判失败、terminate 连接，随后又本地重下重发造成重复与延迟；
+  // 故已知超限时直接跳过 URL 直发，走本地下载 + 群文件上传
+  const msgSizeLimit = ['LagrangeCore', 'Lagrange.OneBot', 'OneBotv11', 'OneBot11', 'ICQQ'].includes(botAdapter) ? 102 : 75
+  const oversize = fileSize > msgSizeLimit
+  const canSendRemoteVideo = downloadOpt.video_url && !uploadOpt?.forceLocal && !Config.upload.compress && !oversize && (botAdapter === 'QQBot' || Config.upload.videoSendMode === 'url')
+
+  // 抖音视频下载源：无签名 play 直链(aweme.snssdk.com) 或 CDN 签名长链(douyinvod/ixigua/vod.bytedance)，
+  // 桌面 UA + 空 Cookie 会被 403，需移动端 UA + douyin 来源页 Referer + 抖音 Cookie 才能本地抓取
+  const isDouyinPlay = /(?:aweme\.snssdk\.com\/aweme\/v1\/(?:play|playwm)\/|(?:^|\.)douyinvod\d*\.com\/|(?:^|\.)ixigua\.com\/|(?:^|\.)vod\.bytedance\.com\/)/i.test(downloadOpt.video_url || '')
 
   // 下载选项与缓存 key 提前构建，URL 直发成功后也用于后台写缓存
   const cacheKey = downloadOpt.cacheKey
   const buildDownloadOpt = () => {
-    // 抖音视频下载源：无签名 play 直链(aweme.snssdk.com) 或 CDN 签名长链(douyinvod/ixigua/vod.bytedance)，桌面UA + 空Cookie 会被 403，改用移动端UA + douyin 来源页 Referer + 抖音Cookie
-    const isDouyinPlay = /(?:aweme\.snssdk\.com\/aweme\/v1\/(?:play|playwm)\/|(?:^|\.)douyinvod\d*\.com\/|(?:^|\.)ixigua\.com\/|(?:^|\.)vod\.bytedance\.com\/)/i.test(downloadOpt.video_url || '')
     const headers = isDouyinPlay
       ? {
           Accept: '*/*',

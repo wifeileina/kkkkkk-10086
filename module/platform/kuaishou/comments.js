@@ -67,8 +67,8 @@ export default async function comments (data, emojidata) {
       }
     }
   }
-  // 从数组前方开始保留 Config.kuaishou.kuaishounumcomments 条评论，自动移除数组末尾的评论
-  const limit = Config.kuaishou.numcomment || Config.kuaishou.kuaishounumcomments || 5
+  // 从数组前方开始保留 Config.kuaishou.numcomment 条评论，自动移除数组末尾的评论
+  const limit = Config.kuaishou.numcomment || 5
   return jsonArray.slice(0, Math.min(jsonArray.length, limit))
 }
 

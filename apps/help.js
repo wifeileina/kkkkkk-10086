@@ -9,7 +9,7 @@ export class kkkHelp extends plugin {
       priority: 2000,
       rule: [
         {
-          reg: '^#?xk解析帮助$',
+          reg: '^#?(?:xk解析帮助|解析帮助)$',
           fnc: 'help'
         },
         {

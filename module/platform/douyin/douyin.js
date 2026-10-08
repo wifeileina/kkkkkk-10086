@@ -1,4 +1,4 @@
-import { Base, Config, UploadRecord, Networks, Render, Common, downloadFile, downloadVideo, uploadFile, baseHeaders, processImageUrl, makeForwardMsg, makeForwardMsgBatched, getRemoteFileSize, markParseFailed, markParseLimited } from '../../utils/index.js'
+import { Base, Config, UploadRecord, Networks, Render, Common, downloadFile, downloadVideo, uploadFile, baseHeaders, processImageUrl, makeForwardMsg, makeForwardMsgBatched, getRemoteFileSize, markParseFailed, markParseLimited, canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent } from '../../utils/index.js'
 import { getCachedData, setCachedData, runSingleFlightData } from '../../utils/ResourceCache.js'
 import { parseDouyinViaSharePage } from './sharePage.js'
 import { fetchDouyinDetailViaBrowser } from './webapi.js'
@@ -50,14 +50,7 @@ const formatVideoStats = (statistics = {}) => [
   statistics.recommend_count !== undefined ? `推荐：${Common.count(statistics.recommend_count)}` : ''
 ].filter(Boolean).join('\n')
 
-const hasUserConfigKey = (key) => Object.prototype.hasOwnProperty.call(Config.getConfig?.('douyin') || {}, key)
-const hasDouyinContent = (legacyKey, modernKey) => {
-  const sendContent = Config.douyin.sendContent
-  if (modernKey && hasUserConfigKey('sendContent') && Array.isArray(sendContent) && sendContent.length > 0) {
-    return sendContent.includes(modernKey)
-  }
-  return (Config.douyin.douyinTip || []).includes(legacyKey)
-}
+const hasDouyinContent = (key) => Array.isArray(Config.douyin.sendContent) && Config.douyin.sendContent.includes(key)
 
 const getDouyinMusicUrl = (music) => {
   if (!music) return ''
@@ -99,6 +92,48 @@ const buildDouyinForwardTitle = (aweme = {}) => {
     .join(' ')
 }
 
+/** 合并转发里客户端拉取失败的错误特征（DNS/连接异常，多为抖音图床直链） */
+const FORWARD_FETCH_ERROR_RE = /ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNREFUSED|ECONNRESET|socket hang up|getaddrinfo/i
+
+/** 把合并转发中的远程图片直链改成本机下载后的 base64，规避客户端侧无法解析图床域名 */
+const localizeForwardImages = async (msgs) => {
+  const localized = []
+  let changed = false
+  for (const msg of msgs) {
+    // 转发元素两种形态：segment.image() 的 { type, file } 与适配器转换后的 { type, data: { file } }
+    const file = msg?.file ?? msg?.data?.file
+    if (msg?.type === 'image' && typeof file === 'string' && /^https?:\/\//i.test(file)) {
+      const local = await processImageUrl(file, 'forward', undefined, {}, 'base64')
+      if (local !== file && local.startsWith('base64://')) {
+        changed = true
+        localized.push(segment.image(local))
+        continue
+      }
+    }
+    localized.push(msg)
+  }
+  return { msgs: localized, changed }
+}
+
+/**
+ * 发送合并转发：客户端（NapCat 等）自行拉取图片直链失败时，
+ * 回退为本机下载图片并以 base64 重发，避免解析结果因客户端网络问题整条丢失。
+ * @param {(msgs: Array) => Promise<*>} send 构造并发送合并转发的函数
+ * @param {Array} msgs 消息元素数组
+ */
+const replyForwardWithImageFallback = async (send, msgs) => {
+  try {
+    return await send(msgs)
+  } catch (error) {
+    const reason = String(error?.message || error)
+    if (!FORWARD_FETCH_ERROR_RE.test(reason)) throw error
+    const { msgs: localized, changed } = await localizeForwardImages(msgs)
+    if (!changed) throw error
+    logger.warn(`[抖音] 客户端拉取图片直链失败，已改为本机下载后重发: ${reason}`)
+    return await send(localized)
+  }
+}
+
 const getDouyinLiveVideoUrl = (imageItem) => {
   const uri = imageItem?.video?.play_addr_h264?.uri || imageItem?.video?.play_addr?.uri
   return uri ? `https://aweme.snssdk.com/aweme/v1/play/?video_id=${uri}&ratio=1080p&line=0` : ''
@@ -116,7 +151,7 @@ const getDouyinQualityRatio = (quality) => {
   return map[quality] || '1080p'
 }
 
-/** 码流高度 → ratio 参数（体积优先下调档位后按实际选中码流换算） */
+/** 码流高度 → ratio 参数（体积上限下探档位后按实际选中码流换算） */
 const getDouyinHeightRatio = (height) => {
   if (height >= 1900) return '2160p'
   if (height >= 1400) return '1440p'
@@ -239,8 +274,11 @@ export class DouYin extends Base {
       let volumeAdjusted = false
       let parsedDataSize = 0
       let img
-      if (this.type === 'undefined') return true
-      if (Config.app.parseTip || hasDouyinContent('提示信息')) {
+      if (this.type === 'undefined') {
+        markParseFailed(this.e, '无法识别的抖音链接')
+        return true
+      }
+      if (Config.app.parseTip) {
         try {
           if (typeof this.e?.reply === 'function') this.e.reply('检测到抖音链接，开始解析')
         } catch { /* 提示失败不应阻塞解析 */ }
@@ -307,7 +345,7 @@ export class DouYin extends Base {
               if (cached) return cached
               const fresh = await this.amagi.getDouyinData('评论数据', {
                 aweme_id: data.aweme_id,
-                number: Config.douyin.numcomments,
+                number: Config.douyin.numcomment,
                 typeMode: 'strict'
               })
               setCachedData(`${dataKey}:comments`, fresh)
@@ -320,7 +358,7 @@ export class DouYin extends Base {
           /** 图集 */
           let imagenum = 0
           const image_res = []
-          if (!isVideo && !isArticle && hasDouyinContent('图集')) {
+          if (!isVideo && !isArticle && hasDouyinContent('image')) {
             switch (true) {
               // 图集
               case this.is_slides === false && VideoData.data.aweme_detail.images !== null: {
@@ -398,7 +436,9 @@ export class DouYin extends Base {
                   if (hasGeneratedLivePhoto) processedImages.push(await buildLivePhotoTipMessage())
                   const forwardTitle = buildDouyinForwardTitle(VideoData.data.aweme_detail)
                   try {
-                    for (const forward of await makeForwardMsgBatched(this.e, processedImages, forwardTitle, undefined, undefined, { titleOnce: true })) await this.e.reply(forward)
+                    await replyForwardWithImageFallback(async (msgs) => {
+                      for (const forward of await makeForwardMsgBatched(this.e, msgs, forwardTitle, undefined, undefined, { titleOnce: true })) await this.e.reply(forward)
+                    }, processedImages)
                   } finally {
                     for (const item of temp) await Common.removeFile(item.filepath, true)
                   }
@@ -425,10 +465,12 @@ export class DouYin extends Base {
                   }
                 }
                 const forwardTitle = buildDouyinForwardTitle(VideoData.data.aweme_detail)
-                const forward = await makeForwardMsg(this.e, imageres, forwardTitle)
-                image_data.push(forward)
-                image_res.push(image_data)
-                await this.e.reply(forward)
+                await replyForwardWithImageFallback(async (msgs) => {
+                  const forward = await makeForwardMsg(this.e, msgs, forwardTitle)
+                  image_data.push(forward)
+                  image_res.push(image_data)
+                  await this.e.reply(forward)
+                }, imageres)
                 break
               }
               // 合辑
@@ -516,9 +558,10 @@ export class DouYin extends Base {
                 images.push(...built.flat())
                 if (hasGeneratedLivePhoto) images.push(await buildLivePhotoTipMessage())
                 const forwardTitle = buildDouyinForwardTitle(VideoData.data.aweme_detail)
-                const forwardList = await makeForwardMsgBatched(this.e, images, forwardTitle, 10, undefined, { titleOnce: true })
                 try {
-                  for (const forward of forwardList) await this.e.reply(forward)
+                  await replyForwardWithImageFallback(async (msgs) => {
+                    for (const forward of await makeForwardMsgBatched(this.e, msgs, forwardTitle, 10, undefined, { titleOnce: true })) await this.e.reply(forward)
+                  }, images)
                 } catch (error) {
                   logger.error(error)
                 } finally {
@@ -533,7 +576,7 @@ export class DouYin extends Base {
           }
 
           /** 背景音乐 */
-          if (!isArticle && VideoData.data.aweme_detail.music && hasDouyinContent('背景音乐') && !this.hasProcessedLiveImage) {
+          if (!isArticle && VideoData.data.aweme_detail.music && hasDouyinContent('bgm') && !this.hasProcessedLiveImage) {
             const music = VideoData.data.aweme_detail.music
             const music_url = getDouyinMusicUrl(music) // BGM link
             if (this.is_mp4 === false && Config.app.removeCache === false && music_url !== undefined) {
@@ -580,19 +623,9 @@ export class DouYin extends Base {
               视频ID：${logger.green(VideoData.data.aweme_detail.aweme_id)}\n
               分享链接：${logger.green(VideoData.data.aweme_detail.share_url)}
               `)
-              // 体积上限下载：按 douyin.maxAutoVideoSize 筛选可下载的视频流（根据大小自动选择模式）
-              const sizeLimitMb = Config.douyin.maxAutoVideoSize || 100
-              mp4sizeLimit = sizeLimitMb
-              const limitBytes = sizeLimitMb * 1024 * 1024
-              const usableStreams = (video.bit_rate || []).filter(item => item.format !== 'dash')
-              // 体积优先+具体档位：保留完整码流列表以便后续下调档位，不在此做单流折叠
-              if (Config.douyin.volumePriority) {
-                // 体积优先：保留完整码流列表，由下方统一下探逻辑在确定 sourceIndex 后选择能发出的档位，避免提前折叠
-                mp4sizeExceeded = false
-              } else {
-                mp4sizeExceeded = usableStreams.length > 0 && usableStreams.every(item => (item.play_addr?.data_size || 0) > limitBytes)
-                video.bit_rate = douyinProcessVideos(video.bit_rate, sizeLimitMb)
-              }
+              // 体积上限：保留完整码流列表，由下方统一下探逻辑在确定 sourceIndex 后选择能发出的档位，避免提前折叠
+              mp4sizeLimit = Config.douyin.maxAutoVideoSize || 100
+              mp4sizeExceeded = false
             }
             // 视频地址按适配器分支：
             // - QQBot：官方 bot 用裸请求抓取视频 URL，私有 CDN 长链会 403，故用 aweme.snssdk.com 无签名 play 直链（kkk 原方式）
@@ -617,10 +650,22 @@ export class DouYin extends Base {
               }
               // 记录设定档位体积（下调前所选码流），供信息图显示“实际解析体积 设定档位体积/限制体积”
               mp4sizeSet = ((video.bit_rate[sourceIndex]?.play_addr?.data_size || 0) / (1024 * 1024)).toFixed(2)
+            } else if (video.bit_rate?.length) {
+              // 自动画质：先取最高清晰度档，再由下方统一下探逻辑按体积上限自动下调
+              let best = { h: -1, size: -1, i: sourceIndex }
+              for (let i = 0; i < video.bit_rate.length; i++) {
+                const stream = video.bit_rate[i]?.play_addr
+                if (!stream) continue
+                const h = stream.height || 0
+                const size = stream.data_size || 0
+                if (h > best.h || (h === best.h && size > best.size)) best = { h, size, i }
+              }
+              if (best.i !== sourceIndex) sourceIndex = best.i
             }
-            // 体积优先：sourceIndex（hdr/具体档/adapt）确定后，若所选码流超过体积上限则自动下调到能发出的最高清晰度档位；
-            // 存在≤limit候选即下探成功并自动下载；全部档位都超限时下探到体积最小档但保留超限提示，由发送层决定是否发送
-            if (Config.douyin.volumePriority && video.bit_rate?.length) {
+            // 体积上限下探：开启「自动解析分辨率」时，sourceIndex（hdr/具体档/自动画质）确定后，
+            // 若所选码流超过体积上限则自动下调到能发出的最高清晰度档位；存在≤limit候选即下探成功并自动下载；
+            // 全部档位都超限时下探到体积最小档但保留超限提示，由发送层按权限决定是否发送
+            if (Config.douyin.autoResolution && video.bit_rate?.length) {
               mp4sizeLimit = Config.douyin.maxAutoVideoSize || 100
               const vpLimitBytes = mp4sizeLimit * 1024 * 1024
               const candidates = video.bit_rate.filter(item => item.format !== 'dash' && (item.play_addr?.data_size || 0) > 0)
@@ -641,7 +686,7 @@ export class DouYin extends Base {
               }
             }
             }
-            // 体积优先下调档位后，下载与展示均跟随实际选中码流：ratio 按所选码流高度换算，OneBot 直接走所选码流 CDN 直链
+            // 体积上限下探档位后，下载与展示均跟随实际选中码流：ratio 按所选码流高度换算，OneBot 直接走所选码流 CDN 直链
             let playRatio = getDouyinQualityRatio(Config.douyin.videoQuality)
             if (volumeAdjusted) {
               playRatio = getDouyinHeightRatio(video.bit_rate[sourceIndex]?.play_addr?.height || 0)
@@ -652,7 +697,7 @@ export class DouYin extends Base {
               g_video_url = `https://aweme.snssdk.com/aweme/v1/play/?video_id=${playUri}&ratio=${playRatio}&line=0`
             } else {
               // OneBot：配置了具体画质档时用 aweme play 的 ratio 参数强制清晰度（bit_rate 各档 height 多为相同值/缺失，按高度挑档不可靠）；
-              // 未配置具体档（adapt/hdr）或体积优先已下调档位则沿用所选码流 CDN 签名长链，最大化兼容
+              // 未配置具体档（adapt/hdr）或体积上限已下探档位则沿用所选码流 CDN 签名长链，最大化兼容
               const configuredQ = Config.douyin.videoQuality
               const useRatioEndpoint = playRatio && configuredQ && configuredQ !== 'adapt' && configuredQ !== 'hdr' && !volumeAdjusted && rb?.uri
               if (useRatioEndpoint) {
@@ -678,7 +723,7 @@ export class DouYin extends Base {
             const szSrcH = video.height || 0
             const szFixed = szQ && szQ !== 'adapt' && szQ !== 'hdr' && szQH > 0 && szSrcH > 0
             const szScale = szFixed ? Math.min(1, szQH / szSrcH) : 1
-            // 体积优先下调档位后，直接采用所选码流的实际大小
+            // 体积上限下探档位后，直接采用所选码流的实际大小
             mp4size = (((video.bit_rate[sourceIndex]?.play_addr?.data_size || 0) * (volumeAdjusted ? 1 : szScale)) / (1024 * 1024)).toFixed(2)
             // 实际解析体积（字节）：分享页降级等 data_size 缺失时为 0，需远程探测补充用于体积展示
             parsedDataSize = video.bit_rate?.[sourceIndex]?.play_addr?.data_size || 0
@@ -692,10 +737,20 @@ export class DouYin extends Base {
                 mp4size = (probed / (1024 * 1024)).toFixed(2)
               }
             }
+            // 兜底体积拦截：码流体积缺失（如分享页降级）时以探测到的真实体积判定，避免超大视频绕过上限被发出
+            if (!mp4sizeExceeded && mp4sizeLimit > 0 && parsedDataSize > mp4sizeLimit * 1024 * 1024) {
+              mp4sizeExceeded = true
+            }
             logger.info('视频地址', `https://aweme.snssdk.com/aweme/v1/play/?video_id=${VideoData.data.aweme_detail.video.play_addr.uri}&ratio=1080p&line=0`)
           }
 
-          if (isVideo && hasDouyinContent('视频', 'info')) {
+          // 指令继续解析（如体积超限后回复「xk解析」）时，120s 内同一作品不再重复发送信息图
+          const infoGraphicEnabled = isVideo && hasDouyinContent('info')
+          const infoGraphicSkip = infoGraphicEnabled && shouldSkipInfoGraphic(this.e, VideoData.data.aweme_detail?.aweme_id)
+          if (infoGraphicSkip) {
+            logger.info('信息图', `指令解析：120s 内已发送过信息图，跳过重复发送 (${VideoData.data.aweme_detail?.aweme_id})`)
+          }
+          if (infoGraphicEnabled && !infoGraphicSkip) {
             const aweme = VideoData.data.aweme_detail
             const statistics = aweme.statistics || {}
             const displayContent = Config.douyin.displayContent || ['cover', 'title', 'author', 'stats']
@@ -740,7 +795,7 @@ export class DouYin extends Base {
               const sh = selectedVideo?.play_addr?.height
               const srcH = video.height || sh || 0
               const cfgFixed = cfgQ && cfgQ !== 'adapt' && cfgQ !== 'hdr' && qH > 0 && srcH > 0
-              // 体积优先下调档位后，分辨率展示所选码流的实际宽高，与下载一致
+              // 体积上限下探档位后，分辨率展示所选码流的实际宽高，与下载一致
               const showH = volumeAdjusted
                 ? ((sh && sh > 0) ? sh : srcH)
                 : (cfgFixed ? Math.min(qH, srcH) : ((sh && sh > 0) ? sh : video.height))
@@ -765,7 +820,11 @@ export class DouYin extends Base {
                   sizeExceeded: mp4sizeExceeded,
                   sizeLimit: mp4sizeLimit,
                   sizeSet: mp4sizeSet,
-                  volumeAdjusted
+                  volumeAdjusted,
+                  overLimitAllowed: canBypassSizeLimit(this.e),
+                  overLimitHint: overLimitHintMode(),
+                  overLimitPermLabel: overLimitPermissionLabel(),
+                  commandParse: isCommandParse(this.e)
                 }
                 : undefined
               const desc = aweme.desc || g_title
@@ -802,15 +861,16 @@ export class DouYin extends Base {
               })
               await this.e.reply(videoInfoImg)
             }
+            markInfoGraphicSent(this.e, aweme.aweme_id)
           }
 
           // 体积超限导致不发视频（自动解析场景）：属规则限制停止解析，不算失败，保持成功表情
-          if (isVideo && hasDouyinContent('视频', 'video') && sendvideofile && mp4sizeExceeded && !this.e?._xkCommandParse) {
+          if (isVideo && hasDouyinContent('video') && sendvideofile && mp4sizeExceeded && !canBypassSizeLimit(this.e)) {
             markParseLimited(this.e, '体积超限')
           }
 
           /** 发送视频：自动解析超限仅出信息图；手动指令(xk解析)强制下载发送 */
-          if (isVideo && hasDouyinContent('视频', 'video') && sendvideofile && (!mp4sizeExceeded || this.e?._xkCommandParse)) {
+          if (isVideo && hasDouyinContent('video') && sendvideofile && (!mp4sizeExceeded || canBypassSizeLimit(this.e))) {
             let danmakuList = []
             const sendOriginalVideo = async () => {
               await downloadVideo(
@@ -882,7 +942,7 @@ export class DouYin extends Base {
             await this.handleArticleWork(VideoData)
           }
 
-          if (hasDouyinContent('评论图', 'comment')) {
+          if (hasDouyinContent('comment')) {
             // 分享页降级时评论数据为空，直接提示，避免再请求可能失败的 Web API
             if (usedSharePage) {
               await this.e.reply('这个作品没有评论 ~')

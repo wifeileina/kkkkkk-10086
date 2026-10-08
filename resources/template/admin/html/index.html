@@ -46,9 +46,33 @@
       <div class="cfg-line">
         视频解析工具总开关
         <span class="cfg-hint">#xk设置视频解析工具总开关 + 开启/关闭</span>
-        {{@data.videotool}}
+        {{@data.videoTool}}
       </div>
       <div class="cfg-desc">视频解析工具总开关，修改后重启生效</div>
+    </li>
+    <li class="cfg-li">
+      <div class="cfg-line">
+        私聊解析
+        <span class="cfg-hint">#xk设置私聊解析 + 开启/关闭</span>
+        {{@data.privateTool}}
+      </div>
+      <div class="cfg-desc">关闭后私聊中的平台链接不做解析，群聊不受影响</div>
+    </li>
+    <li class="cfg-li">
+      <div class="cfg-line">
+        超限指令解析
+        <span class="cfg-hint">#xk设置超限指令解析 + 开启/关闭</span>
+        {{@data.overLimitCommandParse}}
+      </div>
+      <div class="cfg-desc">开启后，使用解析指令（xk解析 / xk档位）可强制下载超过体积上限的视频</div>
+    </li>
+    <li class="cfg-li">
+      <div class="cfg-line">
+        超限解析权限
+        <span class="cfg-hint">请在 WebUI / 锅巴配置中修改</span>
+        {{@data.overLimitCommandParsePermission}}
+      </div>
+      <div class="cfg-desc">允许使用超限指令解析的身份，选项与推送权限一致（所有人 / 管理员 / 主人 / 群主 / 群管理员）</div>
     </li>
     <li class="cfg-li">
       <div class="cfg-line">
@@ -124,23 +148,23 @@
       <div class="cfg-line">
         抖音解析开关
         <span class="cfg-hint">#xk设置抖音解析开关 + 开启/关闭</span>
-        {{@data.douyintool}}
+        {{@data.douyinSwitch}}
       </div>
       <div class="cfg-desc">抖音解析开关，单独开关，受「总开关」影响</div>
     </li>
     <li class="cfg-li">
       <div class="cfg-line">
-        抖音解析可选列表
+        抖音解析发送内容
         <span class="cfg-hint">webui修改</span>
-        {{@data.douyinTip}}
+        {{@data.douyinSendContent}}
       </div>
-      <div class="cfg-desc">可选值：提示信息、评论图、视频、背景音乐、图集</div>
+      <div class="cfg-desc">可选值：info(信息图)、comment(评论图)、video(视频)、image(图集)、bgm(背景音乐)</div>
     </li>
     <li class="cfg-li">
       <div class="cfg-line">
         抖音评论数量
         <span class="cfg-hint">#xk设置抖音评论数量 + 1-50</span>
-        {{@data.numcomments}}
+        {{@data.douyinNumcomment}}
       </div>
       <div class="cfg-desc">抖音评论数量，范围1~50条</div>
     </li>
@@ -148,7 +172,7 @@
       <div class="cfg-line">
         抖音真实评论数量
         <span class="cfg-hint">#xk设置抖音真实评论数量 + 开启/关闭</span>
-        {{@data.realCommentCount}}
+        {{@data.douyinRealCommentCount}}
       </div>
       <div class="cfg-desc">评论图是否显示真实评论数量，关闭则显示解析到的评论数量</div>
     </li>
@@ -156,7 +180,7 @@
       <div class="cfg-line">
         图集BGM高清语音
         <span class="cfg-hint">#xk设置抖音高清语音 + 开启/关闭</span>
-        {{@data.sendHDrecord}}
+        {{@data.douyinSendHDrecord}}
       </div>
       <div class="cfg-desc">图集BGM是否使用高清语音发送，高清语音「ios/PC」系统均无法播放，自行衡量开关（仅icqq）</div>
     </li>
@@ -164,7 +188,7 @@
       <div class="cfg-line">
         抖音自动分辨率
         <span class="cfg-hint">#xk设置抖音自动分辨率 + 开启/关闭</span>
-        {{@data.autoResolution}}
+        {{@data.douyinAutoResolution}}
       </div>
       <div class="cfg-desc">根据「视频拦截阈值」自动选择合适的分辨率，关闭后默认选择最大分辨率进行下载</div>
     </li>
@@ -226,23 +250,23 @@
       <div class="cfg-line">
         B站解析开关
         <span class="cfg-hint">#xk设置B站解析开关 + 开启/关闭</span>
-        {{@data.bilibilitool}}
+        {{@data.bilibiliSwitch}}
       </div>
       <div class="cfg-desc">B站解析开关，单独开关，受「总开关」影响</div>
     </li>
     <li class="cfg-li">
       <div class="cfg-line">
-        B站解析可选列表
+        B站解析发送内容
         <span class="cfg-hint">webui修改</span>
-        {{@data.bilibiliTip}}
+        {{@data.bilibiliSendContent}}
       </div>
-      <div class="cfg-desc">可选值：提示信息、简介、评论图、视频、动态</div>
+      <div class="cfg-desc">可选值：info(简介/信息图)、comment(评论图)、video(视频)、dynamic(动态)</div>
     </li>
     <li class="cfg-li">
       <div class="cfg-line">
         B站评论数量
         <span class="cfg-hint">#xk设置B站评论数量 + 1-20</span>
-        {{@data.bilibilinumcomments}}
+        {{@data.bilibiliNumcomment}}
       </div>
       <div class="cfg-desc">B站评论数量，设置接口返回的评论数量，范围1~20条</div>
     </li>
@@ -258,7 +282,7 @@
       <div class="cfg-line">
         B站内容优先
         <span class="cfg-hint">#xk设置B站内容优先 + 开启/关闭</span>
-        {{@data.videopriority}}
+        {{@data.bilibiliVideopriority}}
       </div>
       <div class="cfg-desc">解析视频是否优先保内容，true为优先保证上传将使用最低分辨率，false则使用自定义画质偏好</div>
     </li>
@@ -266,7 +290,7 @@
       <div class="cfg-line">
         B站画质偏好
         <span class="cfg-hint">#xk设置B站画质偏好 + 0-127</span>
-        {{@data.videoQuality}}
+        {{@data.bilibiliVideoQuality}}
       </div>
       <div class="cfg-desc">视频画质偏好设置，0为自动根据大小选择，其他为固定画质</div>
     </li>
@@ -274,7 +298,7 @@
       <div class="cfg-line">
         B站自动画质大小
         <span class="cfg-hint">#xk设置B站自动画质大小 + 1-200</span>
-        {{@data.maxAutoVideoSize}}
+        {{@data.bilibiliMaxAutoVideoSize}}
       </div>
       <div class="cfg-desc">自动画质模式下可接受的最大视频大小（单位：MB），仅在 videoQuality 为 0 时生效</div>
     </li>
@@ -282,7 +306,7 @@
       <div class="cfg-line">
         B站视频简介显示内容
         <span class="cfg-hint">webui修改</span>
-        {{@data.displayContent}}
+        {{@data.bilibiliDisplayContent}}
       </div>
       <div class="cfg-desc">视频解析时简介显示的内容，可选值：cover(封面)、title(标题)、author(作者)、stats(视频统计信息)、desc(简介)</div>
     </li>
@@ -352,23 +376,23 @@
       <div class="cfg-line">
         快手解析开关
         <span class="cfg-hint">#xk设置快手解析开关 + 开启/关闭</span>
-        {{@data.kuaishoutool}}
+        {{@data.kuaishouSwitch}}
       </div>
       <div class="cfg-desc">快手解析开关，单独开关，受「总开关」影响</div>
     </li>
     <li class="cfg-li">
       <div class="cfg-line">
-        快手解析提示
-        <span class="cfg-hint">#xk设置快手解析提示 + 开启/关闭</span>
-        {{@data.kuaishoutip}}
+        快手评论解析
+        <span class="cfg-hint">webui修改</span>
+        {{@data.kuaishouComment}}
       </div>
-      <div class="cfg-desc">快手解析提示，发送提示信息："检测到快手链接，开始解析"</div>
+      <div class="cfg-desc">是否解析并发送快手作品评论</div>
     </li>
     <li class="cfg-li">
       <div class="cfg-line">
         快手评论数量
         <span class="cfg-hint">#xk设置快手评论数量 + 1-30</span>
-        {{@data.kuaishounumcomments}}
+        {{@data.kuaishouNumcomment}}
       </div>
       <div class="cfg-desc">快手评论数量，范围1~30条</div>
     </li>

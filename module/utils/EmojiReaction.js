@@ -35,14 +35,36 @@ const getPlatform = (event) => {
   return adapter?.platform || adapter?.name || adapter || 'other'
 }
 
-export const getEmojiId = (event, type) => {
+const platformEmojiGroup = (event) => {
   const platform = String(getPlatform(event)).toLowerCase()
-  const group = platform.includes('discord')
-    ? PLATFORM_EMOJI_IDS.discord
-    : platform.includes('qq') || platform.includes('onebot') || platform.includes('lagrange') || platform.includes('napcat')
-      ? PLATFORM_EMOJI_IDS.qq
-      : PLATFORM_EMOJI_IDS.other
+  if (platform.includes('discord')) return PLATFORM_EMOJI_IDS.discord
+  if (platform.includes('qq') || platform.includes('onebot') || platform.includes('lagrange') || platform.includes('napcat')) return PLATFORM_EMOJI_IDS.qq
+  return PLATFORM_EMOJI_IDS.other
+}
+
+const platformDefaultEmojiId = (event, type) => {
+  const group = platformEmojiGroup(event)
   return group[type] ?? PLATFORM_EMOJI_IDS.other[type]
+}
+
+// 可自定义的结果表情：配置值支持语义别名（跨平台自适应）或原始表情ID / Unicode 码点
+const CONFIG_EMOJI_OVERRIDES = { ERROR: 'parseFailedEmoji' }
+
+const resolveEmojiValue = (event, raw) => {
+  const value = raw === undefined || raw === null ? '' : String(raw).trim()
+  if (!value) return null
+  if (EMOJI_TYPES.includes(value)) return platformDefaultEmojiId(event, value)
+  const num = Number(value)
+  return Number.isNaN(num) ? value : num
+}
+
+export const getEmojiId = (event, type) => {
+  const configKey = CONFIG_EMOJI_OVERRIDES[type]
+  if (configKey) {
+    const custom = resolveEmojiValue(event, Config.app?.[configKey])
+    if (custom !== null) return custom
+  }
+  return platformDefaultEmojiId(event, type)
 }
 
 const setByBotMethod = async (event, emojiId, isSet) => {

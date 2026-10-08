@@ -244,6 +244,60 @@ body.dark-mode .quota-used-over {
   text-shadow: 0 0 14px rgba(255, 100, 100, 0.7), 0 2px 6px rgba(0, 0, 0, 0.5);
 }
 
+/* ---------- 体积超限提示条（橙色虚线方框） ---------- */
+.size-exceed-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  max-width: 100%;
+  margin: 20px 0 0;
+  padding: 14px 26px;
+  border-radius: 8px;
+  background: rgba(255, 140, 0, 0.10);
+  border: 1px dashed rgba(217, 119, 6, 0.60);
+  font-size: 28px;
+  color: #d97706;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.size-exceed-hint .se-kbd {
+  color: #b25e00;
+  background: rgba(255, 140, 0, 0.16);
+  border: 1px dashed rgba(217, 119, 6, 0.50);
+  padding: 3px 10px;
+  border-radius: 5px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.size-exceed-hint.is-blocked {
+  background: rgba(120, 120, 120, 0.10);
+  border-color: rgba(120, 120, 120, 0.55);
+  color: #6b7280;
+}
+
+body.dark-mode .size-exceed-hint {
+  background: rgba(255, 150, 0, 0.12);
+  border-color: rgba(255, 170, 60, 0.45);
+  color: #ffb054;
+}
+
+body.dark-mode .size-exceed-hint .se-kbd {
+  color: #ffd49a;
+  background: rgba(255, 150, 0, 0.16);
+  border-color: rgba(255, 170, 60, 0.40);
+}
+
+body.dark-mode .size-exceed-hint.is-blocked {
+  background: rgba(160, 160, 160, 0.12);
+  border-color: rgba(170, 170, 170, 0.40);
+  color: #b6bcc6;
+}
+
 footer {
   align-items: flex-end;
   display: flex;

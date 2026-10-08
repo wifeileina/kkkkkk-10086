@@ -4,9 +4,20 @@ import { dylogin } from '../module/platform/douyin/login.js'
 import { xiaohongshuLogin } from '../module/platform/xiaohongshu/login.js'
 import fs from 'fs'
 
+// 超限指令解析权限取值的中文名（与推送权限选项一致）
+const PermissionLabel = {
+  all: '所有人',
+  admin: '管理员',
+  master: '主人',
+  'group.owner': '群主',
+  'group.admin': '群管理员'
+}
+
 const APPType = {
   缓存删除: 'removeCache',
-  视频解析工具总开关: 'videotool',
+  视频解析工具总开关: 'videoTool',
+  私聊解析: 'privateTool',
+  超限指令解析: 'overLimitCommandParse',
   默认解析: 'defaulttool',
   发送合并转发消息: 'sendforwardmsg',
   深色主题: 'Theme',
@@ -17,8 +28,8 @@ const APPType = {
 }
 
 const DouYinType = {
-  抖音解析开关: 'douyintool',
-  抖音评论数量: 'numcomments',
+  抖音解析开关: 'switch',
+  抖音评论数量: 'numcomment',
   抖音真实评论数量: 'realCommentCount',
   抖音高清语音: 'sendHDrecord',
   抖音自动分辨率: 'autoResolution',
@@ -28,8 +39,8 @@ const DouYinType = {
 }
 
 const BilibiliType = {
-  B站解析开关: 'bilibilitool',
-  B站评论数量: 'bilibilinumcomments',
+  B站解析开关: 'switch',
+  B站评论数量: 'numcomment',
   B站真实评论数量: 'realCommentCount',
   B站内容优先: 'videopriority',
   B站画质偏好: 'videoQuality',
@@ -42,9 +53,8 @@ const BilibiliType = {
 }
 
 const KuaiShouType = {
-  快手解析开关: 'kuaishoutool',
-  快手解析提示: 'kuaishoutip',
-  快手评论数量: 'kuaishounumcomments'
+  快手解析开关: 'switch',
+  快手评论数量: 'numcomment'
 }
 
 const XiaohongshuType = {
@@ -84,9 +94,9 @@ const QualityMap = {
 }
 
 const NumberCfgType = {
-  抖音评论数量: { type: 'douyin', key: 'numcomments', limit: '1-50' },
-  B站评论数量: { type: 'bilibili', key: 'bilibilinumcomments', limit: '1-20' },
-  快手评论数量: { type: 'kuaishou', key: 'kuaishounumcomments', limit: '1-30' },
+  抖音评论数量: { type: 'douyin', key: 'numcomment', limit: '1-50' },
+  B站评论数量: { type: 'bilibili', key: 'numcomment', limit: '1-20' },
+  快手评论数量: { type: 'kuaishou', key: 'numcomment', limit: '1-30' },
   小红书评论数量: { type: 'xiaohongshu', key: 'numcomment', limit: '1-50' },
   小红书自动画质大小: { type: 'xiaohongshu', key: 'maxAutoVideoSize', limit: '1-200' },
   渲染精度: { type: 'app', key: 'renderScale', limit: '50-200' },
@@ -250,17 +260,29 @@ export class kkkAdmin extends plugin {
       ...Object.fromEntries(Object.keys(_cfg.cookies).map(k => [k, getStatus(_cfg.cookies[k], true)])),
       // App
       ...Object.fromEntries(Object.keys(_cfg.app).map(k => [k, getStatus(_cfg.app[k])])),
+      overLimitCommandParsePermission: getStatus(PermissionLabel[_cfg.app.overLimitCommandParsePermission] || '主人'),
       // Douyin
-      ...Object.fromEntries(Object.keys(_cfg.douyin).filter(k => k !== 'push').map(k => [k, getStatus(_cfg.douyin[k])])),
+      douyinSwitch: getStatus(_cfg.douyin.switch),
+      douyinSendContent: getStatus(_cfg.douyin.sendContent),
+      douyinNumcomment: getStatus(_cfg.douyin.numcomment),
+      douyinRealCommentCount: getStatus(_cfg.douyin.realCommentCount),
+      douyinSendHDrecord: getStatus(_cfg.douyin.sendHDrecord),
+      douyinAutoResolution: getStatus(_cfg.douyin.autoResolution),
       ...mapPushConfig('douyin', _cfg.douyin.push),
       // Bilibili
-      ...Object.fromEntries(Object.keys(_cfg.bilibili).filter(k => k !== 'push' && k !== 'realCommentCount' && k !== 'videoQuality' && k !== 'maxAutoVideoSize').map(k => [k, getStatus(_cfg.bilibili[k])])),
+      bilibiliSwitch: getStatus(_cfg.bilibili.switch),
+      bilibiliSendContent: getStatus(_cfg.bilibili.sendContent),
+      bilibiliNumcomment: getStatus(_cfg.bilibili.numcomment),
       bilibiliRealCommentCount: getStatus(_cfg.bilibili.realCommentCount),
-      videoQuality: getStatus(_cfg.bilibili.videoQuality, false, false, true),
-      maxAutoVideoSize: getStatus(_cfg.bilibili.maxAutoVideoSize),
+      bilibiliVideopriority: getStatus(_cfg.bilibili.videopriority),
+      bilibiliVideoQuality: getStatus(_cfg.bilibili.videoQuality, false, false, true),
+      bilibiliMaxAutoVideoSize: getStatus(_cfg.bilibili.maxAutoVideoSize),
+      bilibiliDisplayContent: getStatus(_cfg.bilibili.displayContent),
       ...mapPushConfig('bilibili', _cfg.bilibili.push),
       // Kuaishou
-      ...Object.fromEntries(Object.keys(_cfg.kuaishou).map(k => [k, getStatus(_cfg.kuaishou[k])])),
+      kuaishouSwitch: getStatus(_cfg.kuaishou.switch),
+      kuaishouComment: getStatus(_cfg.kuaishou.comment),
+      kuaishouNumcomment: getStatus(_cfg.kuaishou.numcomment),
       // Xiaohongshu
       ...Object.fromEntries(Object.keys(_cfg.xiaohongshu).map(k => [`xiaohongshu_${k}`, getStatus(_cfg.xiaohongshu[k])])),
       // Upload

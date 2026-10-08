@@ -1,4 +1,4 @@
-import { Base, Render, Config, Networks, mergeFile, Common, baseHeaders, downloadFile, uploadFile, downloadVideo, processImageUrl, makeForwardMsgBatched, markParseFailed, markParseLimited } from '../../utils/index.js'
+import { Base, Render, Config, Networks, mergeFile, Common, baseHeaders, downloadFile, uploadFile, downloadVideo, processImageUrl, makeForwardMsgBatched, markParseFailed, markParseLimited, canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, overLimitTipSuffix, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent } from '../../utils/index.js'
 import { getCachedData, setCachedData, runSingleFlightData, runSingleFlight } from '../../utils/ResourceCache.js'
 import { bilibiliApiUrls, DynamicType, AdditionalType, wbi_sign } from '@ikenxuan/amagi'
 import { getBilibiliData } from './api.js'
@@ -17,14 +17,9 @@ import fs from 'fs'
 /** @type {import('../../utils/Render.js').ImageData[]} */
 let img
 
-const hasUserConfigKey = (key) => Object.prototype.hasOwnProperty.call(Config.getConfig?.('bilibili') || {}, key)
-const hasBilibiliContent = (legacyKey, modernKey) => {
-  const sendContent = Config.bilibili.sendContent
-  if (modernKey && hasUserConfigKey('sendContent') && Array.isArray(sendContent) && sendContent.length > 0) {
-    return sendContent.includes(modernKey)
-  }
-  return (Config.bilibili.bilibiliTip || []).includes(legacyKey)
-}
+const hasBilibiliContent = (key) => Array.isArray(Config.bilibili.sendContent) && Config.bilibili.sendContent.includes(key)
+
+// 体积超限提示尾注统一由 ParsePermission.overLimitTipSuffix() 按权限档位生成
 
 export const getBilibiliPayload = (response) => response?.data?.data || response?.data || response?.result || response || {}
 export const getBilibiliDurl = (response) => getBilibiliPayload(response)?.durl || []
@@ -83,8 +78,11 @@ export class Bilibili extends Base {
    */
   async RESOURCES(iddata) {
     try {
-      if (this.Type === 'undefined') return true
-      !iddata?.Episode && (Config.app.parseTip || hasBilibiliContent('提示信息')) && await this.e.reply('检测到B站链接，开始解析')
+      if (this.Type === 'undefined') {
+        markParseFailed(this.e, '无法识别的B站链接')
+        return true
+      }
+      !iddata?.Episode && Config.app.parseTip && await this.e.reply('检测到B站链接，开始解析')
       switch (this.Type) {
         case 'one_video': {
           // 同一视频多群转发时复用作品数据，避免重复请求 B 站 API
@@ -183,7 +181,11 @@ export class Bilibili extends Base {
             sizeLimit: Config.bilibili.maxAutoVideoSize || 0,
             sizeSet: '',
             sizeExceeded: false,
-            volAdjusted: false
+            volAdjusted: false,
+            overLimitAllowed: canBypassSizeLimit(this.e),
+            overLimitHint: overLimitHintMode(),
+            overLimitPermLabel: overLimitPermissionLabel(),
+            commandParse: isCommandParse(this.e)
           }
 
           // 构建回复内容数组
@@ -193,7 +195,13 @@ export class Bilibili extends Base {
           const replyContent = []
 
           // 如果配置项不存在，则不显示任何内容
-          if (hasBilibiliContent('简介', 'info') && (Config.bilibili?.displayContent || []).length > 0) {
+          const biliInfoEnabled = hasBilibiliContent('info') && (Config.bilibili?.displayContent || []).length > 0
+          // 指令继续解析（如体积超限后回复「xk解析」）时，120s 内同一作品不再重复发送信息图
+          const biliInfoSkip = biliInfoEnabled && shouldSkipInfoGraphic(this.e, infoData.data.data.bvid)
+          if (biliInfoSkip) {
+            logger.info('信息图', `指令解析：120s 内已发送过信息图，跳过重复发送 (${infoData.data.data.bvid})`)
+          }
+          if (biliInfoEnabled && !biliInfoSkip) {
             if (Config.bilibili.videoInfoMode === 'image') {
               // 作者资料缓存：同一 UP 主的作品被持续转发时复用其主页数据，避免重复请求作者 API
               const authorKey = `bilibili:author:${owner.mid}`
@@ -285,6 +293,7 @@ export class Bilibili extends Base {
                 ]))
               }
             }
+            markInfoGraphicSent(this.e, infoData.data.data.bvid)
           }
 
           let videoSize = ''
@@ -314,7 +323,7 @@ export class Bilibili extends Base {
             videoSize = await getvideosize(correctList.videoList[0]?.base_url || '', playUrlPayload.dash?.audio?.[0]?.base_url || '', infoData.data.data.bvid)
             if (correctList.allExceed) videoMeta.sizeExceeded = true
             if (correctList.volAdjusted) videoMeta.volAdjusted = true
-            // 体积优先下调档位后，展示所选码流的实际大小（与下载一致）
+            // 体积上限下探档位后，展示所选码流的实际大小（与下载一致）
             if (correctList.volAdjusted) {
               videoMeta.size = videoSize
               videoMeta.sizeSet = correctList.volSetSizeMb ? correctList.volSetSizeMb.toFixed(2) : ''
@@ -325,14 +334,14 @@ export class Bilibili extends Base {
           } else {
             videoSize = ((playUrlStream?.size || 0) / (1024 * 1024)).toFixed(2)
           }
-          if (hasBilibiliContent('评论图', 'comment')) {
+          if (hasBilibiliContent('comment')) {
             const commentsData = await this.amagi.getBilibiliData('评论数据', {
-              number: Config.bilibili.bilibilinumcomments,
+              number: Config.bilibili.numcomment,
               type: 1,
               oid: infoData.data.data.aid.toString(),
               typeMode: 'strict'
             })
-            const commentsdata = Config.bilibili.bilibilinumcomments && Config.bilibili?.bilibilinumcomments > 0 && bilibiliComments(commentsData.data)
+            const commentsdata = Config.bilibili.numcomment && Config.bilibili.numcomment > 0 && bilibiliComments(commentsData.data)
             if (commentsdata?.length) {
               img = await Render('bilibili/comment', {
                 Type: '视频',
@@ -362,13 +371,14 @@ export class Bilibili extends Base {
             danmakuList = await this.fetchVideoDanmakuList(cid, duration)
           }
 
-          if (hasBilibiliContent('视频', 'video')) {
-            if (correctList.allExceed) {
+          if (hasBilibiliContent('video')) {
+            const bypassSizeLimit = canBypassSizeLimit(this.e)
+            if (correctList.allExceed && !bypassSizeLimit) {
               markParseLimited(this.e, '体积超限')
-              await this.e.reply(`解析到的视频所有清晰度均超过 ${Config.bilibili.maxAutoVideoSize || 100}MB，已停止下载\n当前体积上限：${Config.bilibili.maxAutoVideoSize || 100}MB`, { reply: true })
-            } else if (Config.upload.usefilelimit && Number(videoSize) > Number(Config.upload.filelimit)) {
+              await this.e.reply(`解析到的视频所有清晰度均超过 ${Config.bilibili.maxAutoVideoSize || 100}MB，已停止下载\n当前体积上限：${Config.bilibili.maxAutoVideoSize || 100}MB` + overLimitTipSuffix(), { reply: true })
+            } else if (Config.upload.usefilelimit && Number(videoSize) > Number(Config.upload.filelimit) && !bypassSizeLimit) {
               markParseLimited(this.e, '超过上传大小限制')
-              await this.e.reply(`设定的最大上传大小为 ${Config.upload.filelimit}MB\n当前解析到的视频大小为 ${Number(videoSize)}MB\n` + '视频太大了，还是去B站看吧~', { reply: true })
+              await this.e.reply(`设定的最大上传大小为 ${Config.upload.filelimit}MB\n当前解析到的视频大小为 ${Number(videoSize)}MB\n` + '视频太大了，还是去B站看吧~' + overLimitTipSuffix(), { reply: true })
             } else {
               await this.getvideo(
                 { infoData: infoData.data, playUrlData, danmakuList })
@@ -469,9 +479,9 @@ export class Bilibili extends Base {
               bvid: videoInfo.data.result.season_id.toString(),
               qn: Config.bilibili.videoQuality
             }, simplify, playUrlData.result.dash.audio[0].base_url)
-            if (correctList.allExceed) {
+            if (correctList.allExceed && !canBypassSizeLimit(this.e)) {
               markParseLimited(this.e, '体积超限')
-              this.e.reply(`解析到的视频所有清晰度均超过 ${Config.bilibili.maxAutoVideoSize || 100}MB，已停止下载\n当前体积上限：${Config.bilibili.maxAutoVideoSize || 100}MB`, { reply: true })
+              this.e.reply(`解析到的视频所有清晰度均超过 ${Config.bilibili.maxAutoVideoSize || 100}MB，已停止下载\n当前体积上限：${Config.bilibili.maxAutoVideoSize || 100}MB` + overLimitTipSuffix(), { reply: true })
               break
             }
             playUrlData.result.dash.video = correctList.videoList
@@ -489,12 +499,12 @@ export class Bilibili extends Base {
           break
         }
         case 'dynamic_info': {
-          if (!hasBilibiliContent('动态')) break
+          if (!hasBilibiliContent('dynamic')) break
           const dynamicInfo = await this.amagi.getBilibiliData('动态详情数据', { dynamic_id: iddata.dynamic_id, typeMode: 'strict' })
-          const commentsData = dynamicInfo.data.data.item.type !== DynamicType.LIVE_RCMD && Config.bilibili.bilibilinumcomments && Config.bilibili?.bilibilinumcomments > 0 && await this.amagi.getBilibiliData('评论数据', {
+          const commentsData = dynamicInfo.data.data.item.type !== DynamicType.LIVE_RCMD && Config.bilibili.numcomment && Config.bilibili.numcomment > 0 && await this.amagi.getBilibiliData('评论数据', {
             type: mapping_table(dynamicInfo.data.data.item.type),
             oid: oid(dynamicInfo.data),
-            number: Config.bilibili.bilibilinumcomments,
+            number: Config.bilibili.numcomment,
             typeMode: 'strict'
           })
           const userProfileData = await this.amagi.getBilibiliData('用户主页数据', { host_mid: dynamicInfo.data.data.item.modules.module_author.mid, typeMode: 'strict' })
@@ -555,7 +565,7 @@ export class Bilibili extends Base {
                 }
               }
 
-              if (hasBilibiliContent('评论图', 'comment') && commentsData) {
+              if (hasBilibiliContent('comment') && commentsData) {
                 const commentsdata = bilibiliComments(commentsData.data)
                 img = await Render('bilibili/comment', {
                   Type: '动态',
@@ -652,7 +662,7 @@ export class Bilibili extends Base {
                   dynamicTYPE: '纯文动态'
                 })
               )
-              Config.bilibili.bilibilinumcomments && commentsData && await this.e.reply(
+              Config.bilibili.numcomment && commentsData && await this.e.reply(
                 await Render('bilibili/comment', {
                   Type: '动态',
                   CommentsData: bilibiliComments(commentsData.data),
@@ -765,7 +775,7 @@ export class Bilibili extends Base {
               if (dynamicInfo.data.data.item.modules.module_dynamic.major.type === 'MAJOR_TYPE_ARCHIVE') {
                 const bvid = dynamicInfo.data.data.item.modules.module_dynamic.major.archive.bvid
                 const INFODATA = await getBilibiliData('单个视频作品数据', '', { bvid, typeMode: 'strict' })
-                Config.bilibili.bilibilinumcomments && commentsData && await this.e.reply(
+                Config.bilibili.numcomment && commentsData && await this.e.reply(
                   await Render('bilibili/comment', {
                     Type: '动态',
                     CommentsData: bilibiliComments(commentsData.data),
@@ -891,7 +901,7 @@ export class Bilibili extends Base {
               })
               await this.e.reply(img)
 
-              Config.bilibili.bilibilinumcomments && commentsData && await this.e.reply(
+              Config.bilibili.numcomment && commentsData && await this.e.reply(
                 await Render('bilibili/comment', {
                   Type: '动态',
                   CommentsData: bilibiliComments(commentsData.data),
@@ -1469,7 +1479,7 @@ const oid = (dynamicINFO) => {
  * @property {Object[]} returns.videoList - 处理后的视频流信息对象列表
  * @property {string} returns.selectedQuality - 选中的视频画质值
  * @property {boolean} returns.allExceed - 所有清晰度是否均超过体积上限
- * @property {boolean} returns.volAdjusted - 体积优先是否已自动下调档位
+ * @property {boolean} returns.volAdjusted - 体积上限下探是否已自动下调档位
  * @property {number} returns.volSetSizeMb - 设定档位的体积（MB）
  */
 export const bilibiliProcessVideos = async (qualityOptions, videoList, audioUrl) => {
@@ -1502,11 +1512,10 @@ export const bilibiliProcessVideos = async (qualityOptions, videoList, audioUrl)
       }
     }
 
-    // 体积优先：设置具体档位时，若该档位体积超过 maxAutoVideoSize 则自动下调到能发出的档位
+    // 体积上限下探：所选档位体积超过 maxAutoVideoSize 时自动下调到能发出的档位
     let volAdjusted = false
     let volSetSizeMb = 0
-    const volPri = Config.bilibili.volumePriority
-    if (volPri && matchedVideo && videoList.length > 1) {
+    if (matchedVideo && videoList.length > 1) {
       const vpLimit = qualityOptions?.maxAutoVideoSize || Config.bilibili.maxAutoVideoSize || 100
       const vpLimitBytes = vpLimit * 1024 * 1024
       try {
@@ -1529,7 +1538,7 @@ export const bilibiliProcessVideos = async (qualityOptions, videoList, audioUrl)
           volAdjusted = true
         }
       } catch (error) {
-        logger.warn(`[B站] 体积优先下调档位失败，保持原档位: ${error?.message || error}`)
+        logger.warn(`[B站] 体积上限下探档位失败，保持原档位: ${error?.message || error}`)
       }
     }
 

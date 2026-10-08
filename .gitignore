@@ -17,3 +17,11 @@ test/
 check_git_push.sh
 git_push.sh
 *.bak*
+
+# Windows NTFS ADS zone markers (unwanted)
+*.Zone.Identifier
+*:Zone.Identifier
+
+# Local scratch / diagnostic files
+.scan-keys.sh
+webadapter/emoji-data.js.txt

@@ -17,7 +17,7 @@ const tierSelections = new Map()
 const TIER_COMMAND_REG = /^#?(?:xk解析档位|xk档位解析|解析档位|档位解析|xk档位)/
 
 const getConfigValue = (value, fallback) => value ?? fallback
-const isVideoToolEnabled = () => getConfigValue(Config.app?.videoTool, Config.app?.videotool) !== false
+const isVideoToolEnabled = () => Config.app?.videoTool !== false
 const isDefaultTool = () => getConfigValue(Config.app?.defaulttool, Config.app?.videoTool) !== false
 // 私聊解析开关；onebot/qqbot 私聊事件字段存在差异，故兼容多种私聊标记
 const isPrivateParseEnabled = () => getConfigValue(Config.app?.privateTool, true) !== false
@@ -29,17 +29,17 @@ const PLATFORM_CONFIG = [
   {
     reg: /.*((www|v|jx|jingxuan|m)\.(douyin|iesdouyin)\.com|douyin\.com\/(video|note)).*/i,
     handler: 'douyin',
-    enabled: getConfigValue(Config.douyin?.switch, Config.douyin?.douyintool)
+    enabled: Config.douyin?.switch !== false
   },
   {
     reg: /(bilibili.com|b23.tv|t.bilibili.com|bili2233.cn|^BV[1-9a-zA-Z]{10}$|^av\d+$)/i,
     handler: 'bilibili',
-    enabled: getConfigValue(Config.bilibili?.switch, Config.bilibili?.bilibilitool)
+    enabled: Config.bilibili?.switch !== false
   },
   {
     reg: /^((.*)快手(.*)快手(.*)|(.*)v\.kuaishou(.*)|(.*)kuaishou\.com\/f\/[a-zA-Z0-9]+.*)$/,
     handler: 'kuaishou',
-    enabled: getConfigValue(Config.kuaishou?.switch, Config.kuaishou?.kuaishoutool)
+    enabled: Config.kuaishou?.switch !== false
   },
   {
     reg: /(xiaohongshu\.com|xhslink\.c(?:n|om))/i,
@@ -286,6 +286,8 @@ export class kkkTools extends plugin {
         return true
       }
       tierSelections.delete(key)
+      // 档位序号选择属于显式指令解析：标记后可由全局「超限指令解析」权限绕过体积上限
+      e._xkCommandParse = true
       if (tierSel.platform === 'bilibili') {
         await this.runWithErrorHandler(e, 'B站指定档位下载', async event => {
           await this._bilibili(event, tier.qn, tierSel.url)

@@ -1,5 +1,5 @@
 import { baseHeaders, Networks } from '../../utils/index.js'
-import amagi from '@ikenxuan/amagi'
+import { av2bv } from '@ikenxuan/amagi'
 
 /**
  * @typedef {Object.<string, any>} BilibiliId
@@ -85,8 +85,7 @@ export const getBilibiliID = async (url, log = true) => {
           let bvid = bvideoMatch ? bvideoMatch[1] || bvideoMatch[2] : undefined
           if (bvid && bvid.toLowerCase().startsWith('av')) {
             const avid = parseInt(bvid.replace(/^av/i, ''))
-            const convertResult = await amagi.bilibili.api.convertAvToBv({ avid, typeMode: 'strict' })
-            bvid = convertResult.data.data.bvid
+            bvid = av2bv(avid)
           }
           return {
             type: 'one_video',

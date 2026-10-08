@@ -15,8 +15,5 @@ numcomment: 10
 # 可选值：540p、720p、1080p、2k、4k、adapt、hdr
 videoQuality: 4k
 
-# 视频体积上限，自动画质模式下可接受的最大视频大小（单位：MB）
+# 视频体积上限（单位：MB）：所选清晰度超过该体积会自动下调到能发出的最高清晰度档位
 maxAutoVideoSize: 50
-
-# 体积优先：设置具体画质档位时，若该档位体积超过 maxAutoVideoSize 则自动下调到能发出的档位
-volumePriority: false

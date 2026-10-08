@@ -1,4 +1,4 @@
-import { Networks } from '../../utils/Networks.js'
+import { Networks, getRemoteFileSize } from '../../utils/Networks.js'
 
 import { Config } from '../../utils/index.js'
 
@@ -141,13 +141,61 @@ const pickVideoData = (routerData) => {
 
 const getFirstUrl = (data) => Array.isArray(data?.url_list) ? data.url_list.find(Boolean) || '' : ''
 
+/** 分享页降级链路的清晰度梯度（ratio → 短边标称高度，与 douyin.js 的 getDouyinQualityHeight 同一套换算） */
+const QUALITY_LADDER = [
+  { ratio: '2160p', height: 2160 },
+  { ratio: '1440p', height: 1440 },
+  { ratio: '1080p', height: 1080 },
+  { ratio: '720p', height: 720 },
+  { ratio: '540p', height: 540 }
+]
+
+/**
+ * 按清晰度梯度实测各档真实体积，构造与 Web API 同构的 bit_rate。
+ * 分享页 SSR 数据不含 data_size，直接填 0 会让 maxAutoVideoSize 上限判断失效（超大视频被照常发出），
+ * 因此逐个 ratio 探测 play 直链体积；同体积视为同一档（低清晰度请求会被服务端回退到最高可用档）去重。
+ * @param {string} playUri 视频 uri
+ * @param {number} srcW 原画宽
+ * @param {number} srcH 原画高
+ * @returns {Promise<Array>} bit_rate 数组；探测全失败时返回空数组，由上层远程探测兜底
+ */
+const buildProbedBitRate = async (playUri, srcW, srcH) => {
+  if (!playUri) return []
+  const shortSide = srcW > 0 && srcH > 0 ? Math.min(srcW, srcH) : 0
+  const ladder = QUALITY_LADDER.filter(item => !shortSide || item.height <= shortSide)
+  const probed = []
+  const seen = new Set()
+  for (const item of ladder) {
+    const url = `https://aweme.snssdk.com/aweme/v1/play/?video_id=${playUri}&ratio=${item.ratio}&line=0`
+    const size = await getRemoteFileSize(url, { Referer: 'https://www.douyin.com/' })
+    if (!(size > 0)) continue
+    const key = Math.round(size / 1024)
+    if (seen.has(key)) continue
+    seen.add(key)
+    probed.push({
+      FPS: 30,
+      play_addr: {
+        uri: playUri,
+        url_list: [url, url, url],
+        data_size: size,
+        width: srcH > 0 ? Math.round((srcW || srcH) * item.height / srcH) : 0,
+        height: item.height
+      }
+    })
+  }
+  if (probed.length) {
+    logger.debug(`[抖音分享页] 实测清晰度档位 ${probed.length} 个：${probed.map(i => `${(i.play_addr.data_size / (1024 * 1024)).toFixed(1)}MB`).join(' / ')}`)
+  }
+  return probed
+}
+
 /**
  * 将分享页的精简 VideoData 适配转换为 amagi 兼容的 aweme_detail 结构
  * 缺失字段（music/bit_rate/article_info 等）用安全默认值，保证上游渲染逻辑不崩
  * @param {Object} raw 分享页 VideoData
- * @returns {Object} aweme_detail 兼容结构
+ * @returns {Promise<Object>} aweme_detail 兼容结构
  */
-const normalizeAwemeDetail = (raw) => {
+const normalizeAwemeDetail = async (raw) => {
   const rawVideo = raw?.video
   const rawVideoUri = rawVideo?.play_addr?.uri || ''
   const hasImages = Array.isArray(raw?.images) && raw.images.length > 0
@@ -175,6 +223,9 @@ const normalizeAwemeDetail = (raw) => {
   const renderWh = srcH > 0 && targetH && targetH < srcH
     ? { w: Math.round((srcW || srcH) * targetH / srcH), h: targetH }
     : { w: srcW, h: srcH }
+
+  // 实测各清晰度档真实体积，使 maxAutoVideoSize 体积上限逻辑在降级链路同样生效
+  const probedBitRate = video ? await buildProbedBitRate(playUri, srcW, srcH) : []
 
   const author = raw?.author || {}
 
@@ -210,18 +261,20 @@ const normalizeAwemeDetail = (raw) => {
         duration: durationMs,
         play_addr: video?.play_addr || { uri: playUri, url_list: playUrlList },
         play_addr_h264: { url_list: playUrlList },
-        // 构造与 Web API 结构一致的 bit_rate，便于 autoResolution 逻辑与大小展示
-        bit_rate: [{
-          FPS: 30,
-          play_addr: {
-            uri: playUri,
-            url_list: playUrlList,
-            data_size: 0,
-            // 补展示宽高，使信息图与实际选中的清晰度一致；无目标档/源无尺寸时以 renderWh 兜底
-            width: renderWh.w,
-            height: renderWh.h
-          }
-        }],
+        // 构造与 Web API 结构一致的 bit_rate：优先用实测档位；探测全失败时退回单档占位（体积未知，交由上层远程探测兜底）
+        bit_rate: probedBitRate.length
+          ? probedBitRate
+          : [{
+              FPS: 30,
+              play_addr: {
+                uri: playUri,
+                url_list: playUrlList,
+                data_size: 0,
+                // 补展示宽高，使信息图与实际选中的清晰度一致；无目标档/源无尺寸时以 renderWh 兜底
+                width: renderWh.w,
+                height: renderWh.h
+              }
+            }],
         animated_cover: video?.cover || { url_list: [] },
         dynamic_cover: video?.cover || { url_list: [] },
         cover_original_scale: video?.cover || { url_list: [] },
@@ -258,7 +311,7 @@ export const parseDouyinViaSharePage = async (awemeId, cookie = '') => {
     throw new Error(`分享页解析失败，未在页面中找到作品数据: ${awemeId}`)
   }
 
-  const awemeDetail = normalizeAwemeDetail(raw)
+  const awemeDetail = await normalizeAwemeDetail(raw)
   logger.mark(`[抖音分享页] 降级解析成功: ${awemeId} (${awemeDetail.author?.nickname || '未知作者'})`)
   // _source 标记用于上游判断数据来源（多群并发单飞时也能正确识别）
   return { data: { aweme_detail: awemeDetail }, _source: 'sharePage' }

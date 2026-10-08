@@ -23,6 +23,7 @@ export class StatisticsDBBase {
       await this.createTables()
       await this.initGlobalStatistics()
       await this.syncHistoryFromStats()
+      await this.seedDailyFromStats()
       logger.debug(logger.green('--------------------------[StatisticsDB] 初始化数据库完成--------------------------'))
     } catch (error) {
       logger.error('[StatisticsDB] 数据库初始化失败:', error)
@@ -57,6 +58,23 @@ export class StatisticsDBBase {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
         updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+      )`,
+      // 按「日期 + 群 + 平台」记录解析量，用于日/周/月维度的群组排行
+      `CREATE TABLE IF NOT EXISTS ParseDailyGroup (
+        date TEXT NOT NULL,
+        groupId TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        parseCount INTEGER DEFAULT 0,
+        PRIMARY KEY (date, groupId, platform)
+      )`,
+      // 按「日期 + 用户 + 群 + 平台」记录解析量，用于日/周/月维度的个人排行
+      `CREATE TABLE IF NOT EXISTS ParseDailyUser (
+        date TEXT NOT NULL,
+        userId TEXT NOT NULL,
+        groupId TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        parseCount INTEGER DEFAULT 0,
+        PRIMARY KEY (date, userId, groupId, platform)
       )`
     ]
 
@@ -139,6 +157,55 @@ export class StatisticsDBBase {
 
     await this.incrementTotalParses()
     await this.updateDailyHistory(today, platform)
+    await this.updateDailyGroup(today, groupId, platform)
+    await this.updateDailyUser(today, groupId, userId, platform)
+  }
+
+  async updateDailyGroup(date, groupId, platform) {
+    const existing = await this.getQuery('SELECT * FROM ParseDailyGroup WHERE date = ? AND groupId = ? AND platform = ?', [
+      date,
+      groupId,
+      platform
+    ])
+    if (existing) {
+      await this.runQuery('UPDATE ParseDailyGroup SET parseCount = parseCount + 1 WHERE date = ? AND groupId = ? AND platform = ?', [
+        date,
+        groupId,
+        platform
+      ])
+      return
+    }
+
+    await this.runQuery('INSERT INTO ParseDailyGroup (date, groupId, platform, parseCount) VALUES (?, ?, ?, 1)', [
+      date,
+      groupId,
+      platform
+    ])
+  }
+
+  async updateDailyUser(date, groupId, userId, platform) {
+    const existing = await this.getQuery('SELECT * FROM ParseDailyUser WHERE date = ? AND userId = ? AND groupId = ? AND platform = ?', [
+      date,
+      userId,
+      groupId,
+      platform
+    ])
+    if (existing) {
+      await this.runQuery('UPDATE ParseDailyUser SET parseCount = parseCount + 1 WHERE date = ? AND userId = ? AND groupId = ? AND platform = ?', [
+        date,
+        userId,
+        groupId,
+        platform
+      ])
+      return
+    }
+
+    await this.runQuery('INSERT INTO ParseDailyUser (date, userId, groupId, platform, parseCount) VALUES (?, ?, ?, ?, 1)', [
+      date,
+      userId,
+      groupId,
+      platform
+    ])
   }
 
   async updateDailyHistory(date, platform) {
@@ -184,6 +251,45 @@ export class StatisticsDBBase {
     }
   }
 
+  // 群组表与个人表必须由同一份 ParseStatistics 快照、在同一遍内回填，否则两边会在不同时间
+  // 用不同的累计值落库，导致同一天的群组合计与个人合计对不上。这里在初始化时校验两表各日合计，
+  // 不一致就整体重建（历史累计量按「最后解析日」回填，让周/月排行立刻有数据）。
+  async seedDailyFromStats() {
+    const groupRows = await this.allQuery('SELECT date, SUM(parseCount) AS total FROM ParseDailyGroup GROUP BY date')
+    const userRows = await this.allQuery('SELECT date, SUM(parseCount) AS total FROM ParseDailyUser GROUP BY date')
+    const groupMap = new Map(groupRows.map(row => [row.date, row.total]))
+    const userMap = new Map(userRows.map(row => [row.date, row.total]))
+    const consistent =
+      groupMap.size === userMap.size && [...groupMap].every(([date, total]) => userMap.get(date) === total)
+    if (consistent && groupMap.size > 0) return
+
+    const allStats = await this.getAllStatistics()
+    await this.runQuery('DELETE FROM ParseDailyGroup')
+    await this.runQuery('DELETE FROM ParseDailyUser')
+    if (!allStats.length) return
+
+    const groupAgg = new Map()
+    for (const stat of allStats) {
+      const date = String(stat.updatedAt || stat.createdAt || '').split('T')[0]
+      if (!date) continue
+      // 同一群同平台可能有多名用户，群组表必须按群聚合，否则 INSERT OR IGNORE 会丢掉后写入的用户
+      const key = `${date}|${stat.groupId}|${stat.platform}`
+      groupAgg.set(key, (groupAgg.get(key) || 0) + stat.parseCount)
+      await this.runQuery(
+        'INSERT OR IGNORE INTO ParseDailyUser (date, userId, groupId, platform, parseCount) VALUES (?, ?, ?, ?, ?)',
+        [date, stat.userId, stat.groupId, stat.platform, stat.parseCount]
+      )
+    }
+
+    for (const [key, total] of groupAgg) {
+      const [date, groupId, platform] = key.split('|')
+      await this.runQuery(
+        'INSERT OR IGNORE INTO ParseDailyGroup (date, groupId, platform, parseCount) VALUES (?, ?, ?, ?)',
+        [date, groupId, platform, total]
+      )
+    }
+  }
+
   async getGroupStatistics(groupId) {
     return await this.allQuery('SELECT * FROM ParseStatistics WHERE groupId = ? ORDER BY platform, userId', [groupId])
   }
@@ -200,6 +306,43 @@ export class StatisticsDBBase {
 
   async getAllStatistics() {
     return await this.allQuery('SELECT * FROM ParseStatistics ORDER BY groupId, platform')
+  }
+
+  // 按最近 days 天（含今天）聚合群组解析量排行；days=1 即仅今天
+  async getTopGroupsByRange(days = 1, limit = 10) {
+    const start = new Date()
+    start.setDate(start.getDate() - (Math.max(1, days) - 1))
+    const from = start.toISOString().slice(0, 10)
+    return await this.allQuery(
+      'SELECT groupId, SUM(parseCount) as total FROM ParseDailyGroup WHERE date >= ? GROUP BY groupId ORDER BY total DESC LIMIT ?',
+      [from, limit]
+    )
+  }
+
+  // 按最近 days 天（含今天）聚合个人解析量排行；附带一个群号用于解析昵称
+  async getTopUsersByRange(days = 1, limit = 10) {
+    const start = new Date()
+    start.setDate(start.getDate() - (Math.max(1, days) - 1))
+    const from = start.toISOString().slice(0, 10)
+    return await this.allQuery(
+      'SELECT userId, MAX(groupId) as groupId, SUM(parseCount) as total FROM ParseDailyUser WHERE date >= ? GROUP BY userId ORDER BY total DESC LIMIT ?',
+      [from, limit]
+    )
+  }
+
+  // 清除全部解析统计（累计统计、历史趋势、按日群组/个人统计一并清空）
+  async resetStatistics() {
+    await this.runQuery('DELETE FROM ParseStatistics')
+    await this.runQuery('DELETE FROM ParseHistory')
+    await this.runQuery('DELETE FROM ParseDailyGroup')
+    await this.runQuery('DELETE FROM ParseDailyUser')
+    for (const key of ['totalParses', 'totalGroups']) {
+      await this.runQuery('UPDATE GlobalStatistics SET value = ?, updatedAt = ? WHERE key = ?', [
+        '0',
+        new Date().toISOString(),
+        key
+      ])
+    }
   }
 
   async getRecentHistory(days = 30) {

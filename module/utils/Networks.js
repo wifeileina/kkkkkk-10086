@@ -292,12 +292,28 @@ export class Networks {
   async getLongLink(url = '', retryCount = 0) {
     const targetUrl = url || this.url
     try {
-      const response = await this.axiosInstance.get(targetUrl, {
-        ...this.getConfig(retryCount),
-        timeout: 5000,
-        maxRedirects: 5
-      })
-      return response.request?.res?.responseUrl || response.config?.url || targetUrl
+      // 逐跳跟随 302，responseType 固定 stream 并立即销毁，避免把响应体读进内存：
+      // 抖音 play 直链会 302 到 CDN，若整包读取会把整个视频当字符串缓冲，
+      // 大文件直接触发 "Cannot create a string longer than 0x1fffffe8 characters"，
+      // 且耗时数分钟才失败（解析被拖到超时）。
+      let current = targetUrl
+      for (let hop = 0; hop < 6; hop++) {
+        const response = await this.axiosInstance.get(current, {
+          ...this.getConfig(retryCount),
+          timeout: 5000,
+          maxRedirects: 0,
+          responseType: 'stream',
+          validateStatus: (status) => (status >= 200 && status < 300) || (status >= 300 && status < 400)
+        })
+        response.data?.destroy?.()
+        const location = response.headers?.location
+        if (location && response.status >= 300 && response.status < 400) {
+          current = new URL(location, current).href
+          continue
+        }
+        return current
+      }
+      return current
     } catch (error) {
       const axiosError = /** @type {AxiosError} */(error)
       if (retryCount < this.maxRetries) {
