@@ -89,6 +89,12 @@ const selectVideoStream = (streamData, bypass = false) => {
   }
 
   if (quality === 'adapt') {
+    // 关闭「视频体积上限」时不设限制，直接取最高清晰度码流
+    if (Config.xiaohongshu.limitVideoSize === false) {
+      xhsSizeExceeded = false
+      xhsExceedBytes = 0
+      return streams[0]
+    }
     xhsSizeLimitMb = Config.xiaohongshu.maxAutoVideoSize || 50
     const limit = xhsSizeLimitMb * 1024 * 1024
     const sized = streams.filter(s => s.size != null)
@@ -114,7 +120,7 @@ const selectVideoStream = (streamData, bypass = false) => {
   }
 
   // 体积上限下探：设置具体档位时，若该档位体积超过 maxAutoVideoSize 则自动下调到能发出的档位
-  if (quality !== 'hdr') {
+  if (Config.xiaohongshu.limitVideoSize !== false && quality !== 'hdr') {
     xhsSizeLimitMb = Config.xiaohongshu.maxAutoVideoSize || 50
     const vpLimit = xhsSizeLimitMb * 1024 * 1024
     const sized = streams.filter(s => s.size != null)

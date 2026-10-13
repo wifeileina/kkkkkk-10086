@@ -335,6 +335,7 @@ const schemas = [
   ]),
   sw('douyin.textMode', '文本模式', '开启后直接输出文本，关闭后渲染为图片'),
   radio('douyin.videoQuality', '视频画质偏好', videoQualityOptions),
+  sw('douyin.limitVideoSize', '视频体积上限开关', '关闭后不限制视频体积，按所选画质直接下载'),
   num('douyin.maxAutoVideoSize', '视频体积上限', 0, 9999, 'MB'),
   radio('douyin.loginPerm', '扫码登录权限', permissionOptions),
   radio('douyin.videoInfoMode', '视频信息返回形式', [
@@ -371,6 +372,7 @@ const schemas = [
   select('bilibili.displayContent', '简介显示内容', displayContentOptions, '', true),
   sw('bilibili.videopriority', '优先保内容', '开启后优先保证上传成功，可能降低分辨率'),
   radio('bilibili.videoQuality', '视频画质偏好', bilibiliQualityOptions),
+  sw('bilibili.limitVideoSize', '视频体积上限开关', '关闭后不限制视频体积，按所选画质直接下载'),
   num('bilibili.maxAutoVideoSize', '视频体积上限', 0, 9999, 'MB'),
   num('bilibili.numcomment', '评论解析数量', 0, 9999, '条'),
   sw('bilibili.realCommentCount', '显示真实评论数量'),
@@ -417,6 +419,7 @@ const schemas = [
   select('xiaohongshu.sendContent', '发送内容', sendContentOptions, '', true),
   num('xiaohongshu.numcomment', '评论解析数量', 0, 9999, '条'),
   radio('xiaohongshu.videoQuality', '视频画质偏好', xiaohongshuQualityOptions),
+  sw('xiaohongshu.limitVideoSize', '视频体积上限开关', '关闭后不限制视频体积，按所选画质直接下载'),
   num('xiaohongshu.maxAutoVideoSize', '视频体积上限', 0, 9999, 'MB'),
 
   group('上传配置'),

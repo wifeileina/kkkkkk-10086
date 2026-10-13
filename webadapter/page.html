@@ -1408,6 +1408,7 @@ const ROW_GROUPS = [
   ['douyin.burnDanmaku', 'douyin.danmakuArea'], // 弹幕：烧录 + 显示区域
   ['douyin.danmakuFontSize', 'douyin.danmakuOpacity'], // 弹幕：字号 + 透明度
   ['douyin.verticalMode', 'douyin.videoCodec'], // 输出视频：竖屏适配 + 编码
+  ['douyin.limitVideoSize', 'douyin.maxAutoVideoSize'], // 视频体积上限开关 + 上限值
 
   // ── 抖音推送 ──
   ['douyin.push.switch', 'douyin.push.cron'], // 推送开关 + 定时表达式
@@ -1421,6 +1422,7 @@ const ROW_GROUPS = [
   ['bilibili.burnDanmaku', 'bilibili.danmakuArea'], // 弹幕：烧录 + 显示区域
   ['bilibili.danmakuFontSize', 'bilibili.danmakuOpacity'], // 弹幕：字号 + 透明度
   ['bilibili.verticalMode', 'bilibili.videoCodec'], // 输出视频：竖屏适配 + 编码
+  ['bilibili.limitVideoSize', 'bilibili.maxAutoVideoSize'], // 视频体积上限开关 + 上限值
 
   // ── B站推送 ──
   ['bilibili.push.switch', 'bilibili.push.cron'],
@@ -1429,6 +1431,9 @@ const ROW_GROUPS = [
 
   // ── 快手解析 ──
   ['kuaishou.comment'], // 评论解析
+
+  // ── 小红书解析 ──
+  ['xiaohongshu.limitVideoSize', 'xiaohongshu.maxAutoVideoSize'], // 视频体积上限开关 + 上限值
 
   // ── 上传与下载 ──
   ['upload.sendbase64', 'upload.videoSendMode'], // 视频发送方式：base64 开关 + 模式

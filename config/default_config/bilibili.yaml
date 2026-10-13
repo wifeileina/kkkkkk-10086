@@ -35,6 +35,9 @@ videopriority: false
 #  - 127: 8K 超高清 (需大会员且支持8K)
 videoQuality: 0
 
+# 视频体积上限开关，关闭后不限制视频体积，按所选画质直接下载
+limitVideoSize: true
+
 # 视频体积上限（单位：MB）：所选清晰度超过该体积会自动下调到能发出的最高清晰度档位
 maxAutoVideoSize: 50
 

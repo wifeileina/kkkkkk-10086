@@ -665,7 +665,7 @@ export class DouYin extends Base {
             // 体积上限下探：开启「自动解析分辨率」时，sourceIndex（hdr/具体档/自动画质）确定后，
             // 若所选码流超过体积上限则自动下调到能发出的最高清晰度档位；存在≤limit候选即下探成功并自动下载；
             // 全部档位都超限时下探到体积最小档但保留超限提示，由发送层按权限决定是否发送
-            if (Config.douyin.autoResolution && video.bit_rate?.length) {
+            if (Config.douyin.limitVideoSize !== false && Config.douyin.autoResolution && video.bit_rate?.length) {
               mp4sizeLimit = Config.douyin.maxAutoVideoSize || 100
               const vpLimitBytes = mp4sizeLimit * 1024 * 1024
               const candidates = video.bit_rate.filter(item => item.format !== 'dash' && (item.play_addr?.data_size || 0) > 0)
@@ -738,7 +738,7 @@ export class DouYin extends Base {
               }
             }
             // 兜底体积拦截：码流体积缺失（如分享页降级）时以探测到的真实体积判定，避免超大视频绕过上限被发出
-            if (!mp4sizeExceeded && mp4sizeLimit > 0 && parsedDataSize > mp4sizeLimit * 1024 * 1024) {
+            if (Config.douyin.limitVideoSize !== false && !mp4sizeExceeded && mp4sizeLimit > 0 && parsedDataSize > mp4sizeLimit * 1024 * 1024) {
               mp4sizeExceeded = true
             }
             logger.info('视频地址', `https://aweme.snssdk.com/aweme/v1/play/?video_id=${VideoData.data.aweme_detail.video.play_addr.uri}&ratio=1080p&line=0`)

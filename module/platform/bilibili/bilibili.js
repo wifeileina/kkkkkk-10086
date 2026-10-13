@@ -1515,7 +1515,7 @@ export const bilibiliProcessVideos = async (qualityOptions, videoList, audioUrl)
     // 体积上限下探：所选档位体积超过 maxAutoVideoSize 时自动下调到能发出的档位
     let volAdjusted = false
     let volSetSizeMb = 0
-    if (matchedVideo && videoList.length > 1) {
+    if (Config.bilibili.limitVideoSize !== false && matchedVideo && videoList.length > 1) {
       const vpLimit = qualityOptions?.maxAutoVideoSize || Config.bilibili.maxAutoVideoSize || 100
       const vpLimitBytes = vpLimit * 1024 * 1024
       try {
@@ -1578,7 +1578,11 @@ export const bilibiliProcessVideos = async (qualityOptions, videoList, audioUrl)
   logger.info('所有视频大小结果:', results)
 
   // 将结果对象的值转换为数字，并找到最接近但不超过 qualityOptions.maxAutoVideoSize 或 Config.bilibili.maxAutoVideoSize 的值
-  const maxSize = qualityOptions?.maxAutoVideoSize || Config.bilibili.maxAutoVideoSize || 100
+  // 关闭「视频体积上限」时不按体积筛选，直接取最高清晰度档
+  const sizeLimitEnabled = Config.bilibili.limitVideoSize !== false
+  const maxSize = sizeLimitEnabled
+    ? (qualityOptions?.maxAutoVideoSize || Config.bilibili.maxAutoVideoSize || 100)
+    : Infinity
   logger.info('最大允许大小:', maxSize, 'MB')
 
   /** @type {number | null} */
@@ -1597,6 +1601,12 @@ export const bilibiliProcessVideos = async (qualityOptions, videoList, audioUrl)
     /** @type {number} */
     const size = parseFloat(sizeStrVal.replace('MB', ''))
     logger.info(`检查视频ID ${idNum} (${qnd[idNum]}), 大小: ${size}MB`)
+
+    // 关闭体积上限：忽略体积，直接取清晰度 id 最高的一档
+    if (!sizeLimitEnabled) {
+      if (closestId === null || idNum > closestId) closestId = idNum
+      return
+    }
 
     if (size <= maxSize) {
       // 记录小于限制的最大视频ID
@@ -1628,7 +1638,7 @@ export const bilibiliProcessVideos = async (qualityOptions, videoList, audioUrl)
   }
 
   // HDR优先：HDR(125)体积通常比4K(120)更小但观感更优，只要HDR体积在限制内则优先选中
-  const hdrSizeStr = results[125]
+  const hdrSizeStr = sizeLimitEnabled ? results[125] : undefined
   if (hdrSizeStr !== undefined) {
     const hdrSize = parseFloat(String(hdrSizeStr).replace('MB', '') || '0')
     if (hdrSize > 0 && hdrSize <= maxSize) {

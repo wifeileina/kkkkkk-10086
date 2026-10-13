@@ -274,7 +274,7 @@ body.dark-mode .quota-used-over {
   letter-spacing: 0.5px;
 }
 
-.size-exceed-hint.is-blocked {
+.size-exceed-hint.is-forced {
   background: rgba(120, 120, 120, 0.10);
   border-color: rgba(120, 120, 120, 0.55);
   color: #6b7280;
@@ -292,7 +292,7 @@ body.dark-mode .size-exceed-hint .se-kbd {
   border-color: rgba(255, 170, 60, 0.40);
 }
 
-body.dark-mode .size-exceed-hint.is-blocked {
+body.dark-mode .size-exceed-hint.is-forced {
   background: rgba(160, 160, 160, 0.12);
   border-color: rgba(170, 170, 170, 0.40);
   color: #b6bcc6;

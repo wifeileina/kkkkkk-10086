@@ -80,6 +80,7 @@ const APP_UPLOAD_KEYS = [
  * @property {boolean} [DouyinConfig.sendHDrecord] 图集BGM是否使用高清语音发送
  * @property {boolean} [DouyinConfig.autoResolution] 根据「视频拦截阈值」自动选择合适的分辨率
  * @property {'540p'|'720p'|'1080p'|'2k'|'4k'|'adapt'} [DouyinConfig.videoQuality] 视频画质偏好
+ * @property {boolean} [DouyinConfig.limitVideoSize] 视频体积上限开关，关闭后不限制视频体积
  * @property {number} [DouyinConfig.maxAutoVideoSize] 视频体积上限（MB），超出自动下调档位
  * @property {'text'|'image'} [DouyinConfig.videoInfoMode] 视频信息返回形式
  * @property {('cover'|'title'|'author'|'stats')[]} [DouyinConfig.displayContent] 视频信息显示内容
@@ -109,6 +110,7 @@ const APP_UPLOAD_KEYS = [
  * @property {boolean} [BilibiliConfig.realCommentCount] 评论图是否显示真实评论数量
  * @property {boolean} [BilibiliConfig.videopriority] 解析视频是否优先保内容
  * @property {number} [BilibiliConfig.videoQuality] 视频画质偏好设置
+ * @property {boolean} [BilibiliConfig.limitVideoSize] 视频体积上限开关，关闭后不限制视频体积
  * @property {number} [BilibiliConfig.maxAutoVideoSize] 视频体积上限（MB），超出自动下调档位
  * @property {'text'|'image'} [BilibiliConfig.videoInfoMode] 视频信息返回形式
  * @property {string[]} [BilibiliConfig.displayContent] 视频解析时简介显示的内容
@@ -161,6 +163,7 @@ const APP_UPLOAD_KEYS = [
  * @property {('info'|'image'|'video'|'comment')[]} [XiaohongshuConfig.sendContent] 小红书解析发送内容
  * @property {number} [XiaohongshuConfig.numcomment] 小红书评论数量
  * @property {'540p'|'720p'|'1080p'|'2k'|'4k'|'adapt'|'hdr'} [XiaohongshuConfig.videoQuality] 视频画质偏好
+ * @property {boolean} [XiaohongshuConfig.limitVideoSize] 视频体积上限开关，关闭后不限制视频体积
  * @property {number} [XiaohongshuConfig.maxAutoVideoSize] 视频体积上限（MB），超出自动下调档位
  */
 

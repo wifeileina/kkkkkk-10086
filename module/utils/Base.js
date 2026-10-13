@@ -693,14 +693,10 @@ export const downloadVideo = async (e, downloadOpt, uploadOpt) => {
 
   if (urlSent) {
     logger.mark(`视频大小 (${fileSizeInMB} MB) 已通过URL发送，跳过本地下载`)
-    // URL 直发成功，后台预下载写缓存供后续同视频群复用
+    // URL 直发成功：缓存视频直链（不落地本地文件），多群转发的同一视频直接复用链接发送
     if (cacheKey && !getCachedVideo(cacheKey)) {
-      runSingleFlight(cacheKey, () => downloadFile(downloadOpt.video_url, buildDownloadOpt()))
-        .then(downloaded => {
-          const cached = { filepath: downloaded.filepath, totalBytes: Number((downloaded.totalBytes / (1024 * 1024)).toFixed(2)) }
-          setCachedVideo(cacheKey, cached)
-        })
-        .catch(error => logger.debug(`[缓存] URL直发后预下载写缓存失败（忽略）: ${error instanceof Error ? error.message : String(error)}`))
+      setCachedVideo(cacheKey, { url: downloadOpt.video_url })
+      logger.debug(`[缓存] 已缓存视频链接供多群分发复用: ${cacheKey}`)
     }
     return true
   }
@@ -709,9 +705,22 @@ export const downloadVideo = async (e, downloadOpt, uploadOpt) => {
   let res
   if (cacheKey) {
     const cached = getCachedVideo(cacheKey)
-    if (cached) {
+    if (cached?.filepath) {
       res = { filepath: cached.filepath, totalBytes: cached.totalBytes, ...downloadOpt.title }
       logger.debug(`[缓存命中] ${cacheKey} 复用已下载文件`)
+    } else if (cached?.url && canSendRemoteVideo) {
+      // 命中缓存的视频链接：优先复用链接直发，避免重复本地下载；链接失效时回退本地下载
+      const urlReused = await sendVideoUrl(e, cached.url, uploadOpt)
+      if (urlReused) {
+        logger.mark(`命中缓存视频链接，已直接复用发送，跳过本地下载`)
+        return true
+      }
+      logger.debug(`[缓存] 复用的视频链接发送失败，回退本地下载: ${cacheKey}`)
+      const downloaded = await runSingleFlight(cacheKey, () => downloadFile(downloadOpt.video_url, buildDownloadOpt()))
+      res = { ...downloaded, ...downloadOpt.title }
+      res.totalBytes = Number((res.totalBytes / (1024 * 1024)).toFixed(2))
+      setCachedVideo(cacheKey, { filepath: res.filepath, totalBytes: res.totalBytes })
+      logger.debug(`[真实下载] ${cacheKey} 未命中缓存，已真实下载`)
     } else {
       const downloaded = await runSingleFlight(cacheKey, () => downloadFile(downloadOpt.video_url, buildDownloadOpt()))
       res = { ...downloaded, ...downloadOpt.title }
