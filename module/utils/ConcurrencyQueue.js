@@ -67,3 +67,8 @@ export const douyinParseQueue = new ConcurrencyQueue(() => readPlatformParseConc
 export const bilibiliParseQueue = new ConcurrencyQueue(() => readPlatformParseConcurrency('bilibili'))
 export const kuaishouParseQueue = new ConcurrencyQueue(() => readPlatformParseConcurrency('kuaishou'))
 export const xiaohongshuParseQueue = new ConcurrencyQueue(() => readPlatformParseConcurrency('xiaohongshu'))
+
+/** 实况图合成队列，全局单例。
+ * ffmpeg 重编码（libx264 + xfade/scale2ref）与「图片+视频」大 Buffer 拼装属高内存/高 CPU 操作，
+ * 固定串行（并发 1）：多群/多平台同时合成时不再叠加峰值内存，避免把进程/宿主拖入 OOM。 */
+export const livePhotoComposeQueue = new ConcurrencyQueue(() => 1)

@@ -39,7 +39,9 @@ export const getDouyinID = async (url, log = true) => {
       longLink = await new Networks({
         url,
         headers: baseHeaders,
-        maxRetries: 1
+        // 短链跳转（v.douyin.com → www.iesdouyin.com → www.douyin.com）偶发瞬时 DNS 解析失败
+        // （ENOTFOUND/EAI_AGAIN），重试太少会让一次抖动直接判为「无法识别的链接」，故放宽重试
+        maxRetries: 3
       }).getLongLink()
 
       // 处理获取长链接失败的情况

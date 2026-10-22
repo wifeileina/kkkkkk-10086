@@ -22,6 +22,32 @@ const resolveXiaohongshuCookie = async () => {
 
 const buildShareUrl = (data) => `https://www.xiaohongshu.com/discovery/item/${data.note_id}${data.xsec_token ? `?xsec_token=${data.xsec_token}` : ''}`
 
+const normalizeForwardText = (value) => String(value ?? '').replace(/\s+/g, ' ').trim()
+
+/** 构造图文转发标题：@作者 描述 #标签，与抖音图文的转发标题格式保持一致。 */
+const buildXiaohongshuForwardTitle = (card = {}, emojiData = []) => {
+  const noteDesc = buildXiaohongshuText(card.desc, emojiData, [], { stripTopicMarker: true })
+  const tags = []
+  const addTag = (value) => {
+    const tag = normalizeForwardText(String(value ?? '').replace(/^#+/, '').replace(/#+$/, ''))
+    if (tag && !tags.includes(tag)) tags.push(tag)
+  }
+
+  // 小红书话题用双 # 包裹（可含空格），提取为标签并从描述中移除
+  const cleanDescription = noteDesc
+    .replace(/#[^#\n\s]+(?:[ \u00A0]+[^#\n\s]+)*#/g, (match) => {
+      addTag(match.slice(1, -1))
+      return ' '
+    })
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const author = normalizeForwardText(card.user?.nickname || card.user?.nick_name).replace(/^@+/, '')
+  return [`@${author || '未知用户'}`, cleanDescription, tags.map((tag) => `#${tag}`).join(' ')]
+    .filter(Boolean)
+    .join(' ')
+}
+
 const getNoteCard = (noteResponse) => noteResponse?.data?.data?.items?.[0]?.note_card
 
 const normalizeSendContent = () => Array.isArray(Config.xiaohongshu.sendContent) ? Config.xiaohongshu.sendContent : []
@@ -370,11 +396,12 @@ export class Xiaohongshu extends Base {
 
       if (hasGeneratedLivePhoto) imageMessages.push(await buildLivePhotoTipMessage())
 
+      const forwardTitle = buildXiaohongshuForwardTitle(card, emojiData)
       try {
         if (imageMessages.length === 1) {
           await this.e.reply(imageMessages[0])
         } else if (imageMessages.length > 1) {
-          for (const forward of await makeForwardMsgBatched(this.e, imageMessages, '小红书图集解析结果')) await this.e.reply(forward)
+          for (const forward of await makeForwardMsgBatched(this.e, imageMessages, forwardTitle, undefined, undefined, { titleOnce: true })) await this.e.reply(forward)
         }
       } finally {
         for (const item of tempFiles) {

@@ -5,6 +5,7 @@ import Common from '../../utils/Common.js'
 import Config from '../../utils/Config.js'
 import { Render } from '../../utils/Render.js'
 import { ffmpeg, loopVideoWithTransition } from '../../utils/FFmpeg.js'
+import { livePhotoComposeQueue } from '../../utils/ConcurrencyQueue.js'
 
 const xmpHeaderBuffer = Buffer.from('http://ns.adobe.com/xap/1.0/\u0000', 'utf8')
 const oppoExifHex = 'FFE100724578696600004D4D002A0000000800040100000400000001000005A001010004000000010000043C87690004000000010000003E011200030000000100000000000000000002928600020000000E0000005C920800040000000100000000000000006F706C75735F3833383836303800'
@@ -281,13 +282,14 @@ export const buildLivePhotoMessages = async (options) => {
 
     if (shouldGenerateVideo) {
       const loopPath = path.join(Common.tempDri.video, `${platform}_live_loop_${name}_${index}.mp4`)
-      const loopResult = await loopVideo(liveVideo.filepath, loopPath, {
+      // 全局串行：ffmpeg 重编码为高内存/高 CPU 操作，避免多群并发叠加峰值
+      const loopResult = await livePhotoComposeQueue.run(() => loopVideo(liveVideo.filepath, loopPath, {
         staticImagePath: staticFile.filepath,
         bgmPath: options.bgmPath,
         mergeMode: options.mergeMode,
         context: options.context,
         loopCount: options.loopCount
-      })
+      }))
       if (loopResult.success) {
         tempFiles.push({ filepath: loopPath, totalBytes: 0 })
         const videoPath = Config.upload.videoSendMode === 'base64'
@@ -300,7 +302,8 @@ export const buildLivePhotoMessages = async (options) => {
 
     if (shouldGenerateLivePhoto) {
       const motionPath = path.join(Common.tempDri.images, `MVIMG_${name}_${index}.jpg`)
-      if (await buildGoogleMotionPhoto({ imagePath: staticFile.filepath, videoPath: liveVideo.filepath, outputPath: motionPath })) {
+      // 全局串行：大 Buffer 图片+视频拼装同样属于高内存操作，与 ffmpeg 合成共享同一闸门
+      if (await livePhotoComposeQueue.run(() => buildGoogleMotionPhoto({ imagePath: staticFile.filepath, videoPath: liveVideo.filepath, outputPath: motionPath }))) {
         tempFiles.push({ filepath: motionPath, totalBytes: 0 })
         const imagePath = Config.upload.imageSendMode === 'base64'
           ? `base64://${fs.readFileSync(motionPath).toString('base64')}`
