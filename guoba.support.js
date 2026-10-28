@@ -487,7 +487,9 @@ const schemas = [
       allowDel: true,
       placeholder: '输入群号后回车添加'
     }
-  }
+  },
+  divider('批量解析'),
+  radio('advanced.batchParsePermission', '批量解析权限', permissionOptions, '允许使用「xk批量解析」的身份，默认仅主人')
 ]
 
 export function supportGuoba() {

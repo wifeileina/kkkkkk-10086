@@ -191,6 +191,7 @@ export function init(ctx) {
           privateTool: app.privateTool !== false,
           overLimitCommandParse: app.overLimitCommandParse !== false,
           overLimitCommandParsePermission: app.overLimitCommandParsePermission || 'master',
+          batchParsePermission: advanced.batchParsePermission || 'master',
           defaulttool: app.defaulttool !== false,
           priority: app.priority ?? 0,
           parseTip: app.parseTip === true,

@@ -2,7 +2,7 @@ import { KuaiShou, GetKuaishouID, KuaishouData } from '../module/platform/kuaish
 import { Bilibili, getBilibiliID } from '../module/platform/bilibili/index.js'
 import { DouYin, getDouyinID } from '../module/platform/douyin/index.js'
 import { Xiaohongshu, getXiaohongshuID } from '../module/platform/xiaohongshu/index.js'
-import { Config, Common, UploadRecord, wrapWithErrorHandler, downloadVideo, baseHeaders } from '../module/utils/index.js'
+import { Config, Common, UploadRecord, wrapWithErrorHandler, downloadVideo, baseHeaders, hasPermission, permissionLabel } from '../module/utils/index.js'
 import { arbitrationShouldParse, markParseFailed } from '../module/utils/EmojiReaction.js'
 import { douyinParseQueue, bilibiliParseQueue, kuaishouParseQueue, xiaohongshuParseQueue } from '../module/utils/ConcurrencyQueue.js'
 import { getStatisticsDB } from '../module/db/index.js'
@@ -15,6 +15,14 @@ const tierSelections = new Map()
 
 // 档位命令：#前缀可选，支持 xk解析档位 / xk档位解析 / 解析档位 / 档位解析 / xk档位
 const TIER_COMMAND_REG = /^#?(?:xk解析档位|xk档位解析|解析档位|档位解析|xk档位)/
+// 批量解析命令：消息以「xk批量解析」开头，后接多个链接
+const BATCH_COMMAND_REG = /^#?xk批量解析/
+
+/** 从消息中提取全部链接（兼容 JSON 卡片转义、反引号包裹与尾部标点） */
+const extractBatchLinks = (msg) => {
+  const matched = String(msg || '').replaceAll('\\', '').match(/https?:\/\/[^\s"'<>`]+/gi) || []
+  return [...new Set(matched.map(link => link.replace(/[)）\]】.,;，。、]+$/g, '')))]
+}
 
 const getConfigValue = (value, fallback) => value ?? fallback
 const isVideoToolEnabled = () => Config.app?.videoTool !== false
@@ -82,6 +90,8 @@ export class kkkTools extends plugin {
       event: 'message',
       priority: isDefaultTool() ? -Infinity : Config.app.priority,
       rule: [
+        // 批量解析须优先于平台链接规则，否则多个链接会被单链接规则先命中只解析第一个
+        ...(isVideoToolEnabled() ? [{ reg: BATCH_COMMAND_REG, fnc: 'batchParse' }] : []),
         { reg: TIER_COMMAND_REG, fnc: 'tierParse' }, // 档位选择命令，须优先于平台链接规则，避免被当作普通解析
         ...generateRules(), // 动态生成的平台规则
         ...(isVideoToolEnabled() ? [{ reg: /^(\[图片\])?$/, fnc: 'imageQrCode' }] : []),
@@ -114,6 +124,64 @@ export class kkkTools extends plugin {
     // 消息本身已含解析指令时也放行（如“xk解析 链接”被平台规则先命中）
     if (/^#?(?:解析|xk解析|弹幕解析|xk弹幕解析)/.test(e.msg || '')) return false
     logger.info(`[惰解析群] 群${getEventGroupId(e)}在惰解析列表，需带指令才解析，跳过${name}自动解析`)
+    return true
+  }
+
+  /**
+   * 批量解析：以「xk批量解析」开头，后接多个链接，逐个链接进入对应平台解析流程。
+   * 多个链接共用同一条消息，逐个串行处理（各平台内部队列仍限制并发），避免回复错乱与内存峰值叠加。
+   * @param {any} e 事件对象
+   * @returns {Promise<boolean>}
+   */
+  async batchParse(e) {
+    // 批量解析权限校验（默认仅主人）
+    const batchPermission = Config.advanced?.batchParsePermission || 'master'
+    if (!hasPermission(e, batchPermission)) {
+      await e.reply(`「xk批量解析」需要${permissionLabel(batchPermission)}权限`)
+      return true
+    }
+
+    // 显式指令解析：绕过惰解析限制，并允许按「超限指令解析」权限处理超限视频
+    e._xkCommandParse = true
+    if (this._isPrivateParseBlocked(e, '批量解析')) return true
+
+    const originalMsg = e.msg
+    const links = extractBatchLinks(originalMsg)
+    if (!links.length) {
+      await e.reply('请在「xk批量解析」后附上要解析的链接，多个链接用换行或空格分隔')
+      return true
+    }
+
+    let attempted = 0
+    let succeeded = 0
+    await this.runWithErrorHandler(e, '批量链接解析', async event => {
+      try {
+        for (const link of links) {
+          const config = findPlatformConfig(link)
+          if (!config) {
+            logger.info(`[批量解析] 跳过不受支持/已关闭的链接: ${link}`)
+            continue
+          }
+          attempted++
+          // 每个链接独立判定成败，避免前一个链接的失败标记影响后续
+          event._xkParseFailed = false
+          event._xkParseLimited = false
+          event.msg = link
+          try {
+            await this[`_${config.handler}`](event)
+            if (!event._xkParseFailed) succeeded++
+          } catch (error) {
+            logger.error(`[批量解析] ${config.handler} 处理失败: ${link}`, error)
+          }
+        }
+      } finally {
+        event.msg = originalMsg
+      }
+      // 全部链接都失败时才标记失败（部分成功仍按成功处理）
+      if (attempted > 0 && succeeded === 0) event._xkParseFailed = true
+    })
+
+    if (attempted === 0) await e.reply('未找到可解析的链接（可能平台已关闭或链接不受支持）')
     return true
   }
 

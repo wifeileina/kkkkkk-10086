@@ -52,12 +52,19 @@ export const overLimitPermissionLevel = () => Config.app?.overLimitCommandParseP
 export const overLimitPermissionLabel = () => PERMISSION_LABELS[overLimitPermissionLevel()] || '主人'
 
 /**
+ * 权限等级对应的中文名。
+ * @param {string} [level] 权限等级
+ * @returns {string}
+ */
+export const permissionLabel = (level) => PERMISSION_LABELS[level] || '主人'
+
+/**
  * 判断事件发送者是否满足指定权限等级。
  * @param {any} event 事件对象
  * @param {string} [level] 权限等级
  * @returns {boolean}
  */
-const hasPermission = (event, level) => {
+export const hasPermission = (event, level) => {
   if (!level || level === 'all') return true
   if (event?.isMaster) return true
   if (level === 'master') return false

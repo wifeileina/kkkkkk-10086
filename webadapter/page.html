@@ -695,7 +695,8 @@ const SECTION_TAB = {
   '代理配置': 'upload',
   '仲裁机制': 'advanced',
   '并发解析': 'advanced',
-  '惰解析': 'groups'
+  '惰解析': 'groups',
+  '批量解析': 'advanced'
 }
 const GROUP_TAB = {
   '基础配置': 'global',
@@ -1699,6 +1700,7 @@ function renderStatus (s) {
     ['私聊解析', on(g.privateTool)],
     ['解析提示', on(g.parseTip)],
     ['超限指令解析', on(g.overLimitCommandParse) + (g.overLimitCommandParse ? ` <span class="badge">${esc(PERM_LABEL[g.overLimitCommandParsePermission] || '主人')}</span>` : '')],
+    ['批量解析权限', `<span class="badge">${esc(PERM_LABEL[g.batchParsePermission] || '主人')}</span>`],
     ['表情回应', on(g.emojiReply)],
     ['删除视频缓存', on(g.removeCache) + (g.removeCache ? ` <span class="badge">保留 ${esc(g.cacheRetentionMinutes)} 分钟</span>` : '')],
     ['仲裁机制', on(g.arbitrationEnabled)],

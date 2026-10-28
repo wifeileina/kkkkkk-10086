@@ -5,3 +5,7 @@ manualParseEnabled: false
 
 # 需带指令才解析的群号列表（逗号/回车分隔多个群号）
 manualParseGroups: []
+
+# ===== 批量解析 =====
+# 允许使用「xk批量解析」的身份，可选值：all / admin / master / group.owner / group.admin
+batchParsePermission: master
