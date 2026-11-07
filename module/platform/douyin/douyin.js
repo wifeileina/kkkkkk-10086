@@ -1,4 +1,4 @@
-import { Base, Config, UploadRecord, Networks, Render, Common, downloadFile, downloadVideo, uploadFile, baseHeaders, processImageUrl, makeForwardMsg, makeForwardMsgBatched, getRemoteFileSize, markParseFailed, markParseLimited, canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent } from '../../utils/index.js'
+import { Base, Config, UploadRecord, Networks, Render, Common, downloadFile, downloadVideo, uploadFile, baseHeaders, processImageUrl, makeForwardMsg, makeForwardMsgBatched, getRemoteFileSize, markParseFailed, markParseLimited, canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent, isFileSendMode, isImageFileSendMode, buildMediaName, sendMediaFiles, sendMediaAsFile } from '../../utils/index.js'
 import { getCachedData, setCachedData, runSingleFlightData } from '../../utils/ResourceCache.js'
 import { parseDouyinViaSharePage } from './sharePage.js'
 import { fetchDouyinDetailViaBrowser } from './webapi.js'
@@ -64,8 +64,8 @@ const getDouyinMusicUrl = (music) => {
 
 const normalizeForwardText = (value) => String(value ?? '').replace(/\s+/g, ' ').trim()
 
-/** 构造合辑转发标题：@作者 作品描述 #标签，空字段不保留多余空格。 */
-const buildDouyinForwardTitle = (aweme = {}) => {
+/** 提取转发/文件名所需的作者、描述与标签（文件名规则与转发标题一致）。 */
+const buildDouyinNameParts = (aweme = {}) => {
   const description = normalizeForwardText(aweme.desc)
   const tags = []
   const addTag = (value) => {
@@ -86,8 +86,17 @@ const buildDouyinForwardTitle = (aweme = {}) => {
     .replace(/\s+/g, ' ')
     .trim()
 
-  const author = normalizeForwardText(aweme.author?.nickname).replace(/^@+/, '')
-  return [`@${author || '未知用户'}`, cleanDescription, tags.map((tag) => `#${tag}`).join(' ')]
+  return {
+    author: normalizeForwardText(aweme.author?.nickname).replace(/^@+/, ''),
+    description: cleanDescription || normalizeForwardText(aweme.preview_title),
+    tags
+  }
+}
+
+/** 构造合辑转发标题：@作者 作品描述 #标签，空字段不保留多余空格。 */
+const buildDouyinForwardTitle = (aweme = {}) => {
+  const { author, description, tags } = buildDouyinNameParts(aweme)
+  return [`@${author || '未知用户'}`, description, tags.map((tag) => `#${tag}`).join(' ')]
     .filter(Boolean)
     .join(' ')
 }
@@ -103,7 +112,11 @@ const localizeForwardImages = async (msgs) => {
     // 转发元素两种形态：segment.image() 的 { type, file } 与适配器转换后的 { type, data: { file } }
     const file = msg?.file ?? msg?.data?.file
     if (msg?.type === 'image' && typeof file === 'string' && /^https?:\/\//i.test(file)) {
-      const local = await processImageUrl(file, 'forward', undefined, {}, 'base64')
+      // 抖音图床直链需要来源页与 CK，否则本机下载也可能失败
+      const local = await processImageUrl(file, 'forward', undefined, {
+        Referer: 'https://www.douyin.com/',
+        Cookie: Config.cookies.douyin || ''
+      }, 'base64')
       if (local !== file && local.startsWith('base64://')) {
         changed = true
         localized.push(segment.image(local))
@@ -115,23 +128,43 @@ const localizeForwardImages = async (msgs) => {
   return { msgs: localized, changed }
 }
 
+/** 从单条/多条合并转发的返回结果中取出第一条失败信息（e.reply 会吞异常成 { error: [err] }） */
+const pickForwardError = (status) => {
+  const list = Array.isArray(status) ? status : [status]
+  for (const item of list) {
+    const failed = item?.error?.[0] || item?.error
+    if (failed) return failed
+  }
+  return null
+}
+
 /**
  * 发送合并转发：客户端（NapCat 等）自行拉取图片直链失败时，
  * 回退为本机下载图片并以 base64 重发，避免解析结果因客户端网络问题整条丢失。
+ * 注意：框架的 e.reply 会把发送异常吞成 { error: [err] } 而不抛出，故两种失败形态都要识别。
  * @param {(msgs: Array) => Promise<*>} send 构造并发送合并转发的函数
  * @param {Array} msgs 消息元素数组
  */
 const replyForwardWithImageFallback = async (send, msgs) => {
-  try {
-    return await send(msgs)
-  } catch (error) {
-    const reason = String(error?.message || error)
-    if (!FORWARD_FETCH_ERROR_RE.test(reason)) throw error
-    const { msgs: localized, changed } = await localizeForwardImages(msgs)
-    if (!changed) throw error
-    logger.warn(`[抖音] 客户端拉取图片直链失败，已改为本机下载后重发: ${reason}`)
-    return await send(localized)
+  const dispatch = async (input) => {
+    try {
+      return await send(input)
+    } catch (error) {
+      return { error: [error] }
+    }
   }
+
+  const status = await dispatch(msgs)
+  const failed = pickForwardError(status)
+  if (!failed) return status
+
+  const reason = String(failed?.message || failed)
+  if (!FORWARD_FETCH_ERROR_RE.test(reason)) return status
+
+  const { msgs: localized, changed } = await localizeForwardImages(msgs)
+  if (!changed) return status
+  logger.warn(`[抖音] 客户端拉取图片直链失败，已改为本机下载后重发: ${reason}`)
+  return await dispatch(localized)
 }
 
 const getDouyinLiveVideoUrl = (imageItem) => {
@@ -376,6 +409,8 @@ export class DouYin extends Base {
                   const temp = []
                   let hasGeneratedLivePhoto = false
                   let bgmContext = null
+                  const nameParts = buildDouyinNameParts(VideoData.data.aweme_detail)
+                  const fileItems = []
                   const mergeMode = Config.douyin.liveImageMergeMode || 'independent'
                   const musicUrl = getDouyinMusicUrl(VideoData.data.aweme_detail.music)
                   const liveimgbgm = musicUrl
@@ -399,6 +434,14 @@ export class DouYin extends Base {
                         Cookie: Config.cookies.douyin || ''
                       })
                       processedImages.push(segment.image(processedImageUrl))
+                      if (isImageFileSendMode()) {
+                        fileItems.push({
+                          source: processedImageUrl,
+                          baseName: buildMediaName({ ...nameParts, index, total: images.length, style: 'media' }),
+                          ext: '.jpg',
+                          headers: { Referer: 'https://www.douyin.com/', Cookie: Config.cookies.douyin || '' }
+                        })
+                      }
                       continue
                     }
 
@@ -431,13 +474,43 @@ export class DouYin extends Base {
                       })
                       processedImages.push(segment.image(imageUrl))
                     }
+                    if (isImageFileSendMode()) {
+                      // 实况图与其视频同属一组，共用同一序号后缀
+                      const baseName = buildMediaName({ ...nameParts, index, total: images.length, style: 'media' })
+                      const videoSource = livePhoto.messages.find((item) => item?.type === 'video')?.file
+                      const imageSource = livePhoto.messages.find((item) => item?.type === 'image')?.file
+                      if (videoSource) fileItems.push({ source: videoSource, baseName, ext: '.mp4' })
+                      if (imageSource) {
+                        fileItems.push({ source: imageSource, baseName, ext: '.jpg' })
+                      } else if (imageItem.url_list?.[0]) {
+                        fileItems.push({
+                          source: imageItem.url_list[0],
+                          baseName,
+                          ext: '.jpg',
+                          headers: { Referer: 'https://www.douyin.com/', Cookie: Config.cookies.douyin || '' }
+                        })
+                      }
+                    }
+                  }
+
+                  if (isImageFileSendMode()) {
+                    try {
+                      await sendMediaFiles(this.e, fileItems)
+                      if (hasGeneratedLivePhoto) await this.e.reply(await buildLivePhotoTipMessage())
+                    } finally {
+                      for (const item of temp) await Common.removeFile(item.filepath, true)
+                    }
+                    this.hasProcessedLiveImage = true
+                    break
                   }
 
                   if (hasGeneratedLivePhoto) processedImages.push(await buildLivePhotoTipMessage())
                   const forwardTitle = buildDouyinForwardTitle(VideoData.data.aweme_detail)
                   try {
                     await replyForwardWithImageFallback(async (msgs) => {
-                      for (const forward of await makeForwardMsgBatched(this.e, msgs, forwardTitle, undefined, undefined, { titleOnce: true })) await this.e.reply(forward)
+                      const statuses = []
+                      for (const forward of await makeForwardMsgBatched(this.e, msgs, forwardTitle, undefined, undefined, { titleOnce: true })) statuses.push(await this.e.reply(forward))
+                      return statuses
                     }, processedImages)
                   } finally {
                     for (const item of temp) await Common.removeFile(item.filepath, true)
@@ -464,12 +537,22 @@ export class DouYin extends Base {
                     await new Networks({ url: image_url, type: 'arraybuffer' }).getData().then((data) => fs.promises.writeFile(path, data))
                   }
                 }
+                if (isImageFileSendMode()) {
+                  const nameParts = buildDouyinNameParts(VideoData.data.aweme_detail)
+                  await sendMediaFiles(this.e, imageres.map((item, index) => ({
+                    source: item?.file,
+                    baseName: buildMediaName({ ...nameParts, index, total: imageres.length, style: 'media' }),
+                    ext: '.jpg',
+                    headers: { Referer: 'https://www.douyin.com/', Cookie: Config.cookies.douyin || '' }
+                  })))
+                  break
+                }
                 const forwardTitle = buildDouyinForwardTitle(VideoData.data.aweme_detail)
                 await replyForwardWithImageFallback(async (msgs) => {
                   const forward = await makeForwardMsg(this.e, msgs, forwardTitle)
                   image_data.push(forward)
                   image_res.push(image_data)
-                  await this.e.reply(forward)
+                  return await this.e.reply(forward)
                 }, imageres)
                 break
               }
@@ -556,11 +639,32 @@ export class DouYin extends Base {
                 }
                 await Promise.all(Array.from({ length: Math.min(poolSize, images1.length) }, () => runLivePhotoWorker()))
                 images.push(...built.flat())
+                if (isImageFileSendMode()) {
+                  const nameParts = buildDouyinNameParts(VideoData.data.aweme_detail)
+                  const fileItems = []
+                  built.forEach((group, index) => {
+                    const baseName = buildMediaName({ ...nameParts, index, total: built.length, style: 'media' })
+                    for (const item of group || []) {
+                      if (!item?.file) continue
+                      fileItems.push({ source: item.file, baseName, ext: item.type === 'video' ? '.mp4' : '.jpg' })
+                    }
+                  })
+                  try {
+                    await sendMediaFiles(this.e, fileItems)
+                    if (hasGeneratedLivePhoto) await this.e.reply(await buildLivePhotoTipMessage())
+                  } finally {
+                    for (const item of temp) await Common.removeFile(item.filepath, true)
+                  }
+                  this.hasProcessedLiveImage = true
+                  break
+                }
                 if (hasGeneratedLivePhoto) images.push(await buildLivePhotoTipMessage())
                 const forwardTitle = buildDouyinForwardTitle(VideoData.data.aweme_detail)
                 try {
                   await replyForwardWithImageFallback(async (msgs) => {
-                    for (const forward of await makeForwardMsgBatched(this.e, msgs, forwardTitle, 10, undefined, { titleOnce: true })) await this.e.reply(forward)
+                    const statuses = []
+                    for (const forward of await makeForwardMsgBatched(this.e, msgs, forwardTitle, 10, undefined, { titleOnce: true })) statuses.push(await this.e.reply(forward))
+                    return statuses
                   }, images)
                 } catch (error) {
                   logger.error(error)
@@ -589,7 +693,16 @@ export class DouYin extends Base {
             }
             const haspath = music_url && this.is_mp4 === false && music_url !== undefined
             if (haspath) {
-              await this.e.reply(await UploadRecord(this.e, music_url, 0, Config.douyin.sendHDrecord ? false : true))
+              if (isFileSendMode()) {
+                await sendMediaAsFile(this.e, {
+                  source: music_url,
+                  baseName: buildMediaName(buildDouyinNameParts(VideoData.data.aweme_detail)),
+                  ext: '.mp3',
+                  headers: { Referer: 'https://www.douyin.com/', Cookie: Config.cookies.douyin || '' }
+                })
+              } else {
+                await this.e.reply(await UploadRecord(this.e, music_url, 0, Config.douyin.sendHDrecord ? false : true))
+              }
             }
           }
 
@@ -886,7 +999,8 @@ export class DouYin extends Base {
                     Referer: g_video_url,
                     Cookies: ''
                   },
-                  cacheKey: `douyin:${VideoData.data.aweme_detail?.aweme_id || g_video_url}`
+                  cacheKey: `douyin:${VideoData.data.aweme_detail?.aweme_id || g_video_url}`,
+                  nameParts: buildDouyinNameParts(VideoData.data.aweme_detail)
                 },
                 {
                   message_id: this.e.message_id
@@ -926,7 +1040,7 @@ export class DouYin extends Base {
                 await Common.removeFile(videoFile.filepath, true)
                 if (ok) {
                   const size = await Common.getVideoFileSize(resultPath)
-                  await uploadFile(this.e, { filepath: resultPath, totalBytes: size, originTitle: g_title }, '')
+                  await uploadFile(this.e, { filepath: resultPath, totalBytes: size, originTitle: g_title }, '', { nameParts: buildDouyinNameParts(VideoData.data.aweme_detail) })
                 } else {
                   await sendOriginalVideo()
                 }

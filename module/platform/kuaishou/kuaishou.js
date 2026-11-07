@@ -45,7 +45,12 @@ export default class KuaiShou extends Base {
         timestampTitle: `tmp_${Date.now()}.mp4`,
         originTitle: `${videoDetail.photo.caption || '快手作品'}.mp4`
       },
-      cacheKey: `kuaishou:${videoDetail?.photo?.photoId || video_url}`
+      cacheKey: `kuaishou:${videoDetail?.photo?.photoId || video_url}`,
+      nameParts: {
+        author: videoDetail?.photo?.userName || videoDetail?.photo?.user?.name || '',
+        description: videoDetail?.photo?.caption || '快手作品',
+        tags: []
+      }
     })
     return true
   }

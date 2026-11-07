@@ -14,6 +14,8 @@ import Config from './Config.js'
 import Common from './Common.js'
 import axios from 'axios'
 import fs from 'fs'
+import path from 'node:path'
+import { isFileSendMode, buildMediaName, sendLocalFile } from './FileSend.js'
 
 // QQBot（官方 bot）会上传前自己抓取视频 URL 转 base64（裸请求、无平台特定请求头）。
 // 抖音等平台直链对裸请求会返回 403，故发送前用同样方式探测该 URL 能否公开抓取；
@@ -508,6 +510,19 @@ const sendVideoUrl = async (e, videoUrl, options) => {
  * @returns {Promise<boolean>}
  */
 export const uploadFile = async (e, file, videoUrl, options) => {
+  // 文件发送模式：视频/合并结果直接按文件发送，文件名沿用「@作者-描述 #标签」规则
+  if (isFileSendMode()) {
+    const ext = path.extname(file.filepath) || '.mp4'
+    const baseName = options?.fileName || buildMediaName(options?.nameParts || {})
+    const fileName = `${baseName}${ext}`
+    return await sendLocalFile(e, {
+      filepath: file.filepath,
+      fileName,
+      active: options?.active,
+      activeOption: options?.activeOption
+    })
+  }
+
   let newFileSize = file.totalBytes
   const isActiveMessage = options?.active && options?.activeOption
 
@@ -660,7 +675,7 @@ export const downloadVideo = async (e, downloadOpt, uploadOpt) => {
   // 故已知超限时直接跳过 URL 直发，走本地下载 + 群文件上传
   const msgSizeLimit = ['LagrangeCore', 'Lagrange.OneBot', 'OneBotv11', 'OneBot11', 'ICQQ'].includes(botAdapter) ? 102 : 75
   const oversize = fileSize > msgSizeLimit
-  const canSendRemoteVideo = downloadOpt.video_url && !uploadOpt?.forceLocal && !Config.upload.compress && !oversize && (botAdapter === 'QQBot' || Config.upload.videoSendMode === 'url')
+  const canSendRemoteVideo = downloadOpt.video_url && !uploadOpt?.forceLocal && !Config.upload.compress && !oversize && !isFileSendMode() && (botAdapter === 'QQBot' || Config.upload.videoSendMode === 'url')
 
   // 抖音视频下载源：无签名 play 直链(aweme.snssdk.com) 或 CDN 签名长链(douyinvod/ixigua/vod.bytedance)，
   // 桌面 UA + 空 Cookie 会被 403，需移动端 UA + douyin 来源页 Referer + 抖音 Cookie 才能本地抓取
@@ -737,7 +752,12 @@ export const downloadVideo = async (e, downloadOpt, uploadOpt) => {
   // 视频大小判断
   const useGroupFile = res.totalBytes > (['LagrangeCore', 'Lagrange.OneBot', 'OneBotv11', 'OneBot11', 'ICQQ'].includes(botAdapter) ? 102 : 75)
   // 上传视频
-  return await uploadFile(e, res, downloadOpt.video_url, { ...uploadOpt, useGroupFile })
+  return await uploadFile(e, res, downloadOpt.video_url, {
+    ...uploadOpt,
+    useGroupFile,
+    nameParts: downloadOpt.nameParts,
+    fileName: downloadOpt.fileName
+  })
 }
 
 /**

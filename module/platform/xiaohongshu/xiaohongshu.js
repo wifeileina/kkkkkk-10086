@@ -10,6 +10,7 @@ import { markParseFailed, markParseLimited } from '../../utils/EmojiReaction.js'
 import { canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, overLimitTipSuffix, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent } from '../../utils/ParsePermission.js'
 import { buildLivePhotoMessages, buildLivePhotoTipMessage, pickXiaohongshuImageUrl } from './livePhoto.js'
 import { buildXiaohongshuEmojiList, buildXiaohongshuText } from './comments.js'
+import { isImageFileSendMode, buildMediaName, sendMediaFiles } from '../../utils/FileSend.js'
 import { xiaohongshuSign, createBoundXiaohongshuFetcher } from '@ikenxuan/amagi'
 
 // 无用户 Cookie 时自动生成小红书游客会话（含 web_session），等效于未登录抓取的 CK
@@ -24,8 +25,8 @@ const buildShareUrl = (data) => `https://www.xiaohongshu.com/discovery/item/${da
 
 const normalizeForwardText = (value) => String(value ?? '').replace(/\s+/g, ' ').trim()
 
-/** 构造图文转发标题：@作者 描述 #标签，与抖音图文的转发标题格式保持一致。 */
-const buildXiaohongshuForwardTitle = (card = {}, emojiData = []) => {
+/** 构造转发/文件名所需的作者、描述与标签（文件名规则与转发标题一致）。 */
+const buildXiaohongshuNameParts = (card = {}, emojiData = []) => {
   const noteDesc = buildXiaohongshuText(card.desc, emojiData, [], { stripTopicMarker: true })
   const tags = []
   const addTag = (value) => {
@@ -42,8 +43,17 @@ const buildXiaohongshuForwardTitle = (card = {}, emojiData = []) => {
     .replace(/\s+/g, ' ')
     .trim()
 
-  const author = normalizeForwardText(card.user?.nickname || card.user?.nick_name).replace(/^@+/, '')
-  return [`@${author || '未知用户'}`, cleanDescription, tags.map((tag) => `#${tag}`).join(' ')]
+  return {
+    author: normalizeForwardText(card.user?.nickname || card.user?.nick_name).replace(/^@+/, ''),
+    description: cleanDescription || normalizeForwardText(card.title),
+    tags
+  }
+}
+
+/** 构造图文转发标题：@作者 描述 #标签，与抖音图文的转发标题格式保持一致。 */
+const buildXiaohongshuForwardTitle = (card = {}, emojiData = []) => {
+  const { author, description, tags } = buildXiaohongshuNameParts(card, emojiData)
+  return [`@${author || '未知用户'}`, description, tags.map((tag) => `#${tag}`).join(' ')]
     .filter(Boolean)
     .join(' ')
 }
@@ -374,6 +384,9 @@ export class Xiaohongshu extends Base {
     if (!card.video && sendContent.includes('image')) {
       const imageMessages = []
       const tempFiles = []
+      const fileItems = []
+      const nameParts = buildXiaohongshuNameParts(card, emojiData)
+      const total = (card.image_list || []).length
       let hasGeneratedLivePhoto = false
 
       for (const [index, item] of (card.image_list || []).entries()) {
@@ -383,6 +396,14 @@ export class Xiaohongshu extends Base {
           hasGeneratedLivePhoto = hasGeneratedLivePhoto || livePhoto.generatedLivePhoto
           if (livePhoto.messages.length > 0) {
             imageMessages.push(...livePhoto.messages)
+            if (isImageFileSendMode()) {
+              // 实况图与其视频同属一组，共用同一序号后缀
+              const baseName = buildMediaName({ ...nameParts, index, total, style: 'media' })
+              const videoSource = livePhoto.messages.find((msg) => msg?.type === 'video')?.file
+              const imageSource = livePhoto.messages.find((msg) => msg?.type === 'image')?.file
+              if (videoSource) fileItems.push({ source: videoSource, baseName, ext: '.mp4' })
+              if (imageSource) fileItems.push({ source: imageSource, baseName, ext: '.jpg' })
+            }
             continue
           }
         }
@@ -391,14 +412,25 @@ export class Xiaohongshu extends Base {
           Referer: 'https://www.xiaohongshu.com',
           Cookie: xhsCookie
         })
-        if (imageUrl) imageMessages.push(segment.image(imageUrl))
+        if (imageUrl) {
+          imageMessages.push(segment.image(imageUrl))
+          if (isImageFileSendMode()) {
+            fileItems.push({
+              source: imageUrl,
+              baseName: buildMediaName({ ...nameParts, index, total, style: 'media' }),
+              ext: '.jpg',
+              headers: { Referer: 'https://www.xiaohongshu.com', Cookie: xhsCookie }
+            })
+          }
+        }
       }
-
-      if (hasGeneratedLivePhoto) imageMessages.push(await buildLivePhotoTipMessage())
 
       const forwardTitle = buildXiaohongshuForwardTitle(card, emojiData)
       try {
-        if (imageMessages.length === 1) {
+        if (isImageFileSendMode()) {
+          await sendMediaFiles(this.e, fileItems)
+          if (hasGeneratedLivePhoto) await this.e.reply(await buildLivePhotoTipMessage())
+        } else if (imageMessages.length === 1) {
           await this.e.reply(imageMessages[0])
         } else if (imageMessages.length > 1) {
           for (const forward of await makeForwardMsgBatched(this.e, imageMessages, forwardTitle, undefined, undefined, { titleOnce: true })) await this.e.reply(forward)
@@ -435,7 +467,8 @@ export class Xiaohongshu extends Base {
           Referer: 'https://www.xiaohongshu.com',
           Cookie: xhsCookie
         },
-        cacheKey: `xhs:${card?.id || card?.note_id || videoUrl}`
+        cacheKey: `xhs:${card?.id || card?.note_id || videoUrl}`,
+        nameParts: buildXiaohongshuNameParts(card, emojiData)
       })
     }
 

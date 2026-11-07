@@ -1,4 +1,5 @@
 import Config from './module/utils/Config.js'
+import { normalizeFileSendMode } from './module/utils/FileSend.js'
 
 const option = (label, value = label) => ({ label, value })
 
@@ -270,7 +271,7 @@ const schemas = [
   password('cookies.xiaohongshu', '小红书 Cookie', '登录 https://www.xiaohongshu.com/ 获取请求头中的 Cookie'),
 
   divider('全局开关'),
-  sw('app.videoTool', '总开关', '视频解析工具总开关，修改后重启生效'),
+  sw('app.videoTool', '总开关', '关闭后不自动解析链接，仍可通过解析指令（xk解析 / xk档位 / xk批量解析）触发，修改后即时生效'),
   sw('app.privateTool', '私聊解析', '关闭后私聊中的链接不做解析，群聊不受影响'),
   sw('app.defaulttool', '默认解析', '识别最高优先级，修改后重启生效'),
   num('app.priority', '解析优先级', 0, 114514, '', '默认解析关闭后生效，修改后重启生效'),
@@ -464,6 +465,14 @@ const schemas = [
   input('request.proxy.auth.password', '代理密码', '', 'InputPassword'),
 
   group('高级设置'),
+  divider('文件发送'),
+  radio('advanced.fileSendMode', '文件发送模式', [
+    option('文件', 'all'),
+    option('仅图文', 'image'),
+    option('普通', 'normal')
+  ], '内容发送方式'),
+  sw('advanced.fileSendArchive', '压缩包发送', '以压缩包上传'),
+  num('advanced.fileSendArchiveMinCount', '触发数量', 1, 50, '个', '启用压缩阈值（不含）'),
   divider('仲裁机制'),
   sw('app.arbitrationEnabled', '仲裁机制', '群内有多个机器人时，仅首个贴上表情的机器人解析，其余检测到抢占表情后自动跳过'),
   tags('app.arbitrationDetectEmojis', '检测的其他表情', '消息已存在这些表情时视为被其他机器人抢占，将跳过解析；小表情ID或Unicode码点均可'),
@@ -519,7 +528,11 @@ export function supportGuoba() {
           xiaohongshu: Config.xiaohongshu,
           upload: Config.upload,
           request: Config.request,
-          advanced: Config.advanced
+          advanced: {
+            ...Config.advanced,
+            fileSendMode: normalizeFileSendMode(Config.advanced?.fileSendMode),
+            fileSendArchive: Config.advanced?.fileSendArchive !== false
+          }
         }
       },
       async setConfigData(data, { Result }) {

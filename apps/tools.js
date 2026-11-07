@@ -2,7 +2,7 @@ import { KuaiShou, GetKuaishouID, KuaishouData } from '../module/platform/kuaish
 import { Bilibili, getBilibiliID } from '../module/platform/bilibili/index.js'
 import { DouYin, getDouyinID } from '../module/platform/douyin/index.js'
 import { Xiaohongshu, getXiaohongshuID } from '../module/platform/xiaohongshu/index.js'
-import { Config, Common, UploadRecord, wrapWithErrorHandler, downloadVideo, baseHeaders, hasPermission, permissionLabel } from '../module/utils/index.js'
+import { Config, Common, UploadRecord, wrapWithErrorHandler, downloadVideo, baseHeaders, hasPermission, permissionLabel, isCommandParse, runWithFileSendMode } from '../module/utils/index.js'
 import { arbitrationShouldParse, markParseFailed } from '../module/utils/EmojiReaction.js'
 import { douyinParseQueue, bilibiliParseQueue, kuaishouParseQueue, xiaohongshuParseQueue } from '../module/utils/ConcurrencyQueue.js'
 import { getStatisticsDB } from '../module/db/index.js'
@@ -17,6 +17,8 @@ const tierSelections = new Map()
 const TIER_COMMAND_REG = /^#?(?:xk解析档位|xk档位解析|解析档位|档位解析|xk档位)/
 // 批量解析命令：消息以「xk批量解析」开头，后接多个链接
 const BATCH_COMMAND_REG = /^#?xk批量解析/
+// 文件解析命令：本次解析强制按文件发送（不受全局「内容发送方式」影响）
+const FILE_COMMAND_REG = /^#?(?:xk文件解析|xk解析文件|文件解析|解析文件|xk文件)/
 
 /** 从消息中提取全部链接（兼容 JSON 卡片转义、反引号包裹与尾部标点） */
 const extractBatchLinks = (msg) => {
@@ -26,6 +28,9 @@ const extractBatchLinks = (msg) => {
 
 const getConfigValue = (value, fallback) => value ?? fallback
 const isVideoToolEnabled = () => Config.app?.videoTool !== false
+// 总开关关闭时只允许显式指令触发解析（xk解析 / xk档位 / xk批量解析 等），
+// 裸链接、纯图片等自动触发一律跳过；返回 false 让消息继续交给其他插件
+const shouldSkipByVideoTool = (e) => !isVideoToolEnabled() && !isCommandParse(e)
 const isDefaultTool = () => getConfigValue(Config.app?.defaulttool, Config.app?.videoTool) !== false
 // 私聊解析开关；onebot/qqbot 私聊事件字段存在差异，故兼容多种私聊标记
 const isPrivateParseEnabled = () => getConfigValue(Config.app?.privateTool, true) !== false
@@ -58,13 +63,12 @@ const PLATFORM_CONFIG = [
 
 /**
  * 动态生成插件规则
+ * 规则始终注册（仅按平台开关过滤），总开关在处理器入口运行时判断，支持热开关
  * @returns {Array} 返回启用的平台规则数组
  */
-const generateRules = () => isVideoToolEnabled()
-  ? PLATFORM_CONFIG
-    .filter(config => config.enabled)
-    .map(({ reg, handler }) => ({ reg, fnc: handler }))
-  : []
+const generateRules = () => PLATFORM_CONFIG
+  .filter(config => config.enabled)
+  .map(({ reg, handler }) => ({ reg, fnc: handler }))
 
 const findPlatformConfig = msg => PLATFORM_CONFIG.find(config => config.enabled && config.reg.test(msg || ''))
 const getEventUserId = e => String(e.user_id || e.userId || e.sender?.user_id || e.sender?.userId || 'unknown')
@@ -91,10 +95,11 @@ export class kkkTools extends plugin {
       priority: isDefaultTool() ? -Infinity : Config.app.priority,
       rule: [
         // 批量解析须优先于平台链接规则，否则多个链接会被单链接规则先命中只解析第一个
-        ...(isVideoToolEnabled() ? [{ reg: BATCH_COMMAND_REG, fnc: 'batchParse' }] : []),
+        { reg: BATCH_COMMAND_REG, fnc: 'batchParse' },
         { reg: TIER_COMMAND_REG, fnc: 'tierParse' }, // 档位选择命令，须优先于平台链接规则，避免被当作普通解析
+        { reg: FILE_COMMAND_REG, fnc: 'fileParse' }, // 文件解析命令：强制按文件发送
         ...generateRules(), // 动态生成的平台规则
-        ...(isVideoToolEnabled() ? [{ reg: /^(\[图片\])?$/, fnc: 'imageQrCode' }] : []),
+        { reg: /^(\[图片\])?$/, fnc: 'imageQrCode' },
         { reg: /^#?\d{1,2}$/, fnc: 'selectDouyinWork' },
         { reg: /^#?(?:解析|xk解析|弹幕解析|xk弹幕解析)(?!帮助|版本|更新|删除缓存|统计|设置)/, fnc: 'prefix' }, // 解析功能规则（排除帮助/版本/更新/删除缓存/统计等指令，避免吞掉其他功能）
         { reg: /#?BGM(\d+)/, fnc: 'uploadRecord' }, // BGM上传功能规则
@@ -212,12 +217,27 @@ export class kkkTools extends plugin {
         headers: {
           ...baseHeaders,
           Referer: 'https://www.douyin.com'
-        }
+        },
+        nameParts: { description: `抖音视频_${videoId}` }
       })
       return true
     }
 
     // 查找匹配的平台并直接调用处理函数；无平台匹配时返回 false，不吞掉消息，让其他指令继续处理
+    return await this.dispatchPlatform(e)
+  }
+
+  /**
+   * 文件解析指令：本次解析强制按文件发送（不受全局「内容发送方式」影响）
+   * 支持前缀：xk文件解析 / xk解析文件 / 文件解析 / 解析文件 / xk文件
+   */
+  async fileParse(e) {
+    // 显式指令：绕过惰解析限制，并允许按「超限指令解析」权限处理超限视频
+    e._xkCommandParse = true
+    e._xkFileCommand = true
+    e.msg = await Common.getReplyMessage(e)
+    // QQ 小程序等 JSON 卡片里的链接会被转义成 https:\/\/，先去掉反斜杠再判断
+    e.msg = String(e.msg || '').replaceAll('\\', '')
     return await this.dispatchPlatform(e)
   }
 
@@ -249,6 +269,8 @@ export class kkkTools extends plugin {
   }
 
   async imageQrCode(e) {
+    // 二维码图片属于自动触发解析：总开关关闭时不处理
+    if (!isVideoToolEnabled()) return false
     const msg = await Common.getReplyMessage(e)
     if (!msg || msg === e.msg) return false
     e.msg = msg
@@ -274,7 +296,9 @@ export class kkkTools extends plugin {
       return true
     }
 
-    await this[config.handler](e)
+    // 「文件解析」指令只对本次解析覆盖发送模式；其余情况沿用全局设置
+    if (e._xkFileCommand) await runWithFileSendMode('all', () => this[config.handler](e))
+    else await this[config.handler](e)
     return true
   }
 
@@ -296,6 +320,7 @@ export class kkkTools extends plugin {
    * @returns {Promise<boolean>} 处理结果
    */
   async douyin(e) {
+    if (shouldSkipByVideoTool(e)) return false
     if (this._isPrivateParseBlocked(e, '抖音')) return true
     if (this._shouldManualParseBlock(e, '抖音')) return true
     return await this.runWithErrorHandler(e, '抖音视频解析', this._douyin)
@@ -408,6 +433,7 @@ export class kkkTools extends plugin {
    * @returns {Promise<boolean>} 处理结果
    */
   async bilibili(e) {
+    if (shouldSkipByVideoTool(e)) return false
     if (this._isPrivateParseBlocked(e, 'B站')) return true
     if (this._shouldManualParseBlock(e, 'B站')) return true
     return await this.runWithErrorHandler(e, 'B站视频解析', this._bilibili)
@@ -475,6 +501,7 @@ export class kkkTools extends plugin {
    * @returns {Promise<boolean>} 处理结果
    */
   async kuaishou(e) {
+    if (shouldSkipByVideoTool(e)) return false
     if (this._isPrivateParseBlocked(e, '快手')) return true
     if (this._shouldManualParseBlock(e, '快手')) return true
     return await this.runWithErrorHandler(e, '快手视频解析', this._kuaishou)
@@ -497,6 +524,7 @@ export class kkkTools extends plugin {
    * @returns {Promise<boolean>} 处理结果
    */
   async xiaohongshu(e) {
+    if (shouldSkipByVideoTool(e)) return false
     if (this._isPrivateParseBlocked(e, '小红书')) return true
     if (this._shouldManualParseBlock(e, '小红书')) return true
     return await this.runWithErrorHandler(e, '小红书笔记解析', this._xiaohongshu)

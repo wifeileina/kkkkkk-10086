@@ -316,6 +316,7 @@ export const buildLivePhotoMessages = async (options) => {
     return { messages, tempFiles, generatedLivePhoto: messages.some(item => item?.type === 'image'), context: options.context }
   } catch (error) {
     logger.warn(`[${platform}] 实况图处理失败，将回退普通图片`, error)
-    return { messages: [], tempFiles, generatedLivePhoto: false }
+    // 保留已成功生成的部分（例如合成视频已成功、仅实况图写入失败时，视频仍应发出）
+    return { messages, tempFiles, generatedLivePhoto: messages.some(item => item?.type === 'image') }
   }
 }

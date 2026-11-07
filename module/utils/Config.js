@@ -34,7 +34,7 @@ const APP_UPLOAD_KEYS = [
 
 /**
  * @typedef {Object} AppConfig
- * @property {boolean} [AppConfig.videoTool] 视频解析工具总开关，修改后重启生效
+ * @property {boolean} [AppConfig.videoTool] 视频解析工具总开关，关闭后不自动解析链接，仍可通过解析指令触发
  * @property {boolean} [AppConfig.defaulttool] 默认解析，即识别最高优先级，修改后重启生效
  * @property {boolean} [AppConfig.removeCache] 缓存删除，非必要不修改！
  * @property {number} [AppConfig.cacheRetentionMinutes] 缓存保存时间（分钟），开启“删除视频缓存”后生效

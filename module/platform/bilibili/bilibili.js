@@ -1,4 +1,5 @@
 import { Base, Render, Config, Networks, mergeFile, Common, baseHeaders, downloadFile, uploadFile, downloadVideo, processImageUrl, makeForwardMsgBatched, markParseFailed, markParseLimited, canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, overLimitTipSuffix, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent } from '../../utils/index.js'
+import { isImageFileSendMode, buildMediaName, sendMediaFiles } from '../../utils/FileSend.js'
 import { getCachedData, setCachedData, runSingleFlightData, runSingleFlight } from '../../utils/ResourceCache.js'
 import { bilibiliApiUrls, DynamicType, AdditionalType, wbi_sign } from '@ikenxuan/amagi'
 import { getBilibiliData } from './api.js'
@@ -28,6 +29,18 @@ export const getBilibiliAcceptDescription = (response) => getBilibiliPayload(res
 export const getBilibiliVideoStream = (response) => {
   const payload = getBilibiliPayload(response)
   return payload?.durl?.[0] || payload?.dash?.video?.[0] || null
+}
+
+/** 提取文件名所需的作者与描述（B站无标签，标签留空）。 */
+const buildBiliNameParts = (infoData = {}, fallbackTitle = '') => {
+  const data = infoData?.data || infoData?.result || {}
+  const modules = data?.item?.modules || {}
+  const archive = modules?.module_dynamic?.major?.archive || {}
+  return {
+    author: data.owner?.name || modules?.module_author?.name || '',
+    description: data.title || archive.title || data.desc || modules?.module_dynamic?.desc?.text || fallbackTitle,
+    tags: []
+  }
 }
 
 export class Bilibili extends Base {
@@ -514,6 +527,9 @@ export class Bilibili extends Base {
             case DynamicType.DRAW: {
               const imgArray = []
               const tempFiles = []
+              const fileItems = []
+              const nameParts = buildBiliNameParts(dynamicInfo)
+              const total = (dynamicInfo.data.data.item.modules.module_dynamic.major.opus.pics || []).length
               let hasGeneratedLivePhoto = false
               const pics = dynamicInfo.data.data.item.modules.module_dynamic.major.opus.pics || []
 
@@ -535,6 +551,13 @@ export class Bilibili extends Base {
                   hasGeneratedLivePhoto = hasGeneratedLivePhoto || livePhoto.generatedLivePhoto
                   if (livePhoto.messages.length > 0) {
                     imgArray.push(...livePhoto.messages)
+                    if (isImageFileSendMode()) {
+                      const baseName = buildMediaName({ ...nameParts, index, total, style: 'media' })
+                      const videoSource = livePhoto.messages.find((msg) => msg?.type === 'video')?.file
+                      const imageSource = livePhoto.messages.find((msg) => msg?.type === 'image')?.file
+                      if (videoSource) fileItems.push({ source: videoSource, baseName, ext: '.mp4' })
+                      if (imageSource) fileItems.push({ source: imageSource, baseName, ext: '.jpg' })
+                    }
                     continue
                   }
                 }
@@ -544,19 +567,31 @@ export class Bilibili extends Base {
                   Cookie: Config.cookies.bilibili || ''
                 })
                 imgArray.push(segment.image(imageUrl))
-              }
-
-              if (hasGeneratedLivePhoto) {
-                imgArray.push(await buildLivePhotoTipMessage())
+                if (isImageFileSendMode()) {
+                  fileItems.push({
+                    source: imageUrl,
+                    baseName: buildMediaName({ ...nameParts, index, total, style: 'media' }),
+                    ext: '.jpg',
+                    headers: { Referer: 'https://www.bilibili.com/', Cookie: Config.cookies.bilibili || '' }
+                  })
+                }
               }
 
               try {
-                if (imgArray.length === 1) await this.e.reply(imgArray[0])
-                if (imgArray.length > 1) {
-                  if (['QQBot', 'KOOKBot'].includes(this.botadapter)) {
-                    await this.e.reply(imgArray)
-                  } else {
-                    for (const forward of await makeForwardMsgBatched(this.e, imgArray, '动态图片')) await this.e.reply(forward)
+                if (isImageFileSendMode()) {
+                  await sendMediaFiles(this.e, fileItems)
+                  if (hasGeneratedLivePhoto) await this.e.reply(await buildLivePhotoTipMessage())
+                } else {
+                  if (hasGeneratedLivePhoto) {
+                    imgArray.push(await buildLivePhotoTipMessage())
+                  }
+                  if (imgArray.length === 1) await this.e.reply(imgArray[0])
+                  if (imgArray.length > 1) {
+                    if (['QQBot', 'KOOKBot'].includes(this.botadapter)) {
+                      await this.e.reply(imgArray)
+                    } else {
+                      for (const forward of await makeForwardMsgBatched(this.e, imgArray, '动态图片')) await this.e.reply(forward)
+                    }
                   }
                 }
               } finally {
@@ -861,9 +896,23 @@ export class Bilibili extends Base {
               })))
               const imageMessages = processedArticleImages.map(url => segment.image(url))
 
-              if (imageMessages.length === 1) await this.e.reply(imageMessages[0])
-              if (imageMessages.length > 1) {
-                for (const forward of await makeForwardMsgBatched(this.e, imageMessages, '专栏图片')) await this.e.reply(forward)
+              if (isImageFileSendMode()) {
+                const nameParts = {
+                  author: userProfileData?.data?.data?.card?.name || '',
+                  description: articleData.title || 'B站专栏',
+                  tags: []
+                }
+                await sendMediaFiles(this.e, processedArticleImages.map((url, index) => ({
+                  source: url,
+                  baseName: buildMediaName({ ...nameParts, index, total: processedArticleImages.length, style: 'media' }),
+                  ext: '.jpg',
+                  headers: { Referer: 'https://www.bilibili.com/', Cookie: Config.cookies.bilibili || '' }
+                })))
+              } else {
+                if (imageMessages.length === 1) await this.e.reply(imageMessages[0])
+                if (imageMessages.length > 1) {
+                  for (const forward of await makeForwardMsgBatched(this.e, imageMessages, '专栏图片')) await this.e.reply(forward)
+                }
               }
 
               const stats = articleData.stats || {}
@@ -1044,7 +1093,7 @@ export class Bilibili extends Base {
       if (!videoUrl || !audioUrl) {
         const videoStream = getBilibiliVideoStream(playUrlData)
         if (videoStream?.url) {
-          await downloadVideo(this.e, { video_url: videoStream.url, title: { timestampTitle: `tmp_${Date.now()}.mp4`, originTitle: `${this.downloadfilename}.mp4` }, cacheKey: `bilibili:${this.downloadfilename || videoStream.url}` })
+          await downloadVideo(this.e, { video_url: videoStream.url, title: { timestampTitle: `tmp_${Date.now()}.mp4`, originTitle: `${this.downloadfilename}.mp4` }, cacheKey: `bilibili:${this.downloadfilename || videoStream.url}`, nameParts: buildBiliNameParts(infoData, this.downloadfilename) })
         } else {
           logger.error("无法下载视频,请配置CooKie后重试")
         }
@@ -1109,9 +1158,9 @@ export class Bilibili extends Base {
       if (mergedFile) {
         // 根据文件大小选择上传方式；各群基于同一文件路径上传，发送锁会按该路径串行，避免依次生成的缩略图冲突
         if (mergedFile.totalBytes > (Config.upload?.filelimit || 100)) {
-          await uploadFile(this.e, { filepath: mergedFile.filepath, totalBytes: mergedFile.totalBytes, originTitle: this.downloadfilename }, '', { useGroupFile: true })
+          await uploadFile(this.e, { filepath: mergedFile.filepath, totalBytes: mergedFile.totalBytes, originTitle: this.downloadfilename }, '', { useGroupFile: true, nameParts: buildBiliNameParts(infoData, this.downloadfilename) })
         } else {
-          await uploadFile(this.e, { filepath: mergedFile.filepath, totalBytes: mergedFile.totalBytes, originTitle: this.downloadfilename }, '')
+          await uploadFile(this.e, { filepath: mergedFile.filepath, totalBytes: mergedFile.totalBytes, originTitle: this.downloadfilename }, '', { nameParts: buildBiliNameParts(infoData, this.downloadfilename) })
         }
       }
     } else {
@@ -1135,12 +1184,12 @@ export class Bilibili extends Base {
             await Common.removeFile(videoFile.filepath, true)
             if (ok) {
               const size = await Common.getVideoFileSize(resultPath)
-              await uploadFile(this.e, { filepath: resultPath, totalBytes: size, originTitle: this.downloadfilename }, '')
+              await uploadFile(this.e, { filepath: resultPath, totalBytes: size, originTitle: this.downloadfilename }, '', { nameParts: buildBiliNameParts(infoData, this.downloadfilename) })
               return
             }
           }
         }
-        await downloadVideo(this.e, { video_url: videoUrl, title: { timestampTitle: `tmp_${Date.now()}.mp4`, originTitle: `${this.downloadfilename}.mp4` }, cacheKey: `bilibili:${this.downloadfilename || videoUrl}` })
+        await downloadVideo(this.e, { video_url: videoUrl, title: { timestampTitle: `tmp_${Date.now()}.mp4`, originTitle: `${this.downloadfilename}.mp4` }, cacheKey: `bilibili:${this.downloadfilename || videoUrl}`, nameParts: buildBiliNameParts(infoData, this.downloadfilename) })
       } else {
         logger.error("无法下载视频,请配置CooKie后重试")
       }

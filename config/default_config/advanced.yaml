@@ -9,3 +9,26 @@ manualParseGroups: []
 # ===== 批量解析 =====
 # 允许使用「xk批量解析」的身份，可选值：all / admin / master / group.owner / group.admin
 batchParsePermission: master
+
+# ===== 文件发送 =====
+# 文件发送模式，可选值：all(全部媒体发文件)、image(仅图文/实况发文件)、normal(普通发送)
+# all：视频 / 图集 / 实况图及其视频 / BGM 均以文件发送
+# image：只把图集与实况（含其视频）转文件，视频与 BGM 正常发送
+fileSendMode: normal
+
+# 压缩包发送：仅「文件 / 仅图文」模式生效。开启后同一解析结果的多个媒体
+# （图集 / 实况图及其视频）打包成一个 zip 发送，避免逐个文件刷屏；
+# 关闭则逐个文件发送；只有单个媒体时仍直接发送文件。
+# 媒体本身已压缩（jpg/mp4），打包仅归档，不做二次压缩。
+fileSendArchive: true
+
+# 媒体超过该数量时才会打包成 zip，默认 3（即 4 个及以上）。
+# 同一组实况的图片与其视频同名同组，只算 1 个。
+fileSendArchiveMinCount: 3
+
+# ===== 文件跨系统直传 =====
+# 仅当 NapCat 能直接读取某个「真实 Windows 目录」时才启用：把该目录在 WSL 侧的路径填到 fileWslRoot，
+# 其 Windows 路径填到 fileWindowsRoot。留空则使用框架 HTTP 文件服务（http://localhost:2536/File/...）。
+# 注意：指向 \\wsl.localhost 的软连接（如 C:\root）QQ 上传群文件时会失败，不要填。
+fileWslRoot: /root
+fileWindowsRoot: ''

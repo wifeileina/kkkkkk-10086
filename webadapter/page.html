@@ -696,7 +696,8 @@ const SECTION_TAB = {
   '仲裁机制': 'advanced',
   '并发解析': 'advanced',
   '惰解析': 'groups',
-  '批量解析': 'advanced'
+  '批量解析': 'advanced',
+  '文件发送': 'advanced'
 }
 const GROUP_TAB = {
   '基础配置': 'global',
@@ -1449,7 +1450,8 @@ const ROW_GROUPS = [
   ['request.proxy.host', 'request.proxy.port', 'request.proxy.protocol'], // 代理地址 / 端口 / 协议
   ['request.proxy.auth.username', 'request.proxy.auth.password'], // 代理认证
 
-  // ── 高级设置 · 并发解析 ──
+  // ── 高级设置 ──
+  ['advanced.fileSendMode', ['advanced.fileSendArchive', 'advanced.fileSendArchiveMinCount']], // 内容发送方式 +（压缩包开关、触发数量）
   ['douyin.parseConcurrency', 'upload.downloadConcurrency'] // 平台解析并发 + 下载分片并发
 ]
 
