@@ -195,7 +195,6 @@ export class kkkTools extends plugin {
     // 命中本规则即代表用户显式使用了解析指令，标记为指令解析
     e._xkCommandParse = true
     e.msg = await Common.getReplyMessage(e)
-    logger.info(`[解析][DEBUG] prefix后 e.msg=${JSON.stringify(String(e.msg || '')).slice(0, 180)}`)
 
     // xk解析档位：列出全部清晰度档位供选择下载
     if (TIER_COMMAND_REG.test(originalMsg)) {
@@ -284,11 +283,7 @@ export class kkkTools extends plugin {
    */
   async dispatchPlatform(e) {
     const config = findPlatformConfig(e.msg)
-    if (!config) {
-      logger.info(`[解析][DEBUG] 未匹配平台链接: msg=${JSON.stringify(String(e.msg || '')).slice(0, 180)}`)
-      return false
-    }
-    logger.info(`[解析][DEBUG] 命中平台: ${config.handler}`)
+    if (!config) return false
 
     const shouldParse = await arbitrationShouldParse(e)
     if (!shouldParse) {

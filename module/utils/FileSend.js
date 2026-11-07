@@ -135,17 +135,12 @@ const localizeSource = async (source, ext, headers) => {
  * @returns {Promise<string>}
  */
 export const toFileUrl = async (e, filepath, fileName) => {
-  // 全局 Bot 是框架的 Yunzai 实例（自带 fileToUrl 文件服务）；e.bot 只是适配器侧的轻量对象
-  const owner = globalThis.Bot
-  const fallbackOwner = e?.bot
-  const candidates = [owner, fallbackOwner].filter(item => item && typeof item.fileToUrl === 'function')
-  for (const bot of candidates) {
-    try {
-      const url = await bot.fileToUrl(filepath, fileName ? { name: fileName } : undefined)
-      if (url) return String(url)
-    } catch (error) {
-      logger.debug(`[FileSend] 本地文件转 HTTP 地址失败: ${error?.message || error}`)
-    }
+  // 全局 Bot 是框架的 Yunzai 实例（自带 fileToUrl 文件服务）；e.bot 是适配器侧的轻量对象，没有该方法
+  try {
+    const url = await globalThis.Bot?.fileToUrl?.(filepath, fileName ? { name: fileName } : undefined)
+    if (url) return String(url)
+  } catch (error) {
+    logger.debug(`[FileSend] 本地文件转 HTTP 地址失败: ${error?.message || error}`)
   }
   return /^file:\/\//i.test(filepath) ? filepath : `file://${filepath}`
 }
@@ -166,7 +161,6 @@ const scheduleCleanup = (filepath) => {
 
 /** 发送一个 file 段；主动消息走指定机器人/群，其余走当前事件 */
 const sendFileSegment = async (e, fileField, fileName, active, activeOption) => {
-  logger.mark(`[FileSend] 发送文件 adapter=${e?.adapter?.name || e?.bot?.adapter?.name || '?'} name=${fileName} file=${String(fileField ?? '').slice(0, 160)}`)
   const fileSegment = segment.file(fileField, fileName)
   if (active && activeOption) {
     const target = activeOption?.uin
