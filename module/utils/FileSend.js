@@ -127,26 +127,6 @@ const localizeSource = async (source, ext, headers) => {
 }
 
 /**
- * 把 WSL 本地路径映射为 Windows 可读路径（用于 NapCat 运行在 Windows 侧的场景）。
- * 例如 fileWslRoot=/root、fileWindowsRoot=C:/root 时：
- *   /root/TRSS_AllBot/a.jpg -> C:/root/TRSS_AllBot/a.jpg
- * @param {string} filepath 本地路径
- * @returns {string|null}
- */
-export const toWindowsPath = (filepath) => {
-  // 路径不能用 clean()，它会把 / 和 : 当非法字符删掉
-  const winRoot = String(Config.advanced?.fileWindowsRoot ?? '').trim()
-  const wslRoot = String(Config.advanced?.fileWslRoot || '/root').trim()
-  if (!winRoot) return null
-  const raw = String(filepath || '').replace(/^file:\/\//, '')
-  const normalizedWslRoot = wslRoot.replace(/[\\/]+$/, '')
-  if (raw !== normalizedWslRoot && !raw.startsWith(`${normalizedWslRoot}/`)) return null
-  const rest = raw.slice(normalizedWslRoot.length).replace(/^\/+/, '')
-  if (!rest) return null
-  return `${winRoot.replace(/[\\/]+$/, '')}/${rest}`
-}
-
-/**
  * 把本地文件转成框架的 HTTP 文件地址（NapCat 等跨进程/跨系统适配器无法读取 Bot 侧本地路径）。
  * 转换失败时回退为 file:// 地址。
  * @param {*} e 事件对象
@@ -198,8 +178,7 @@ const sendFileSegment = async (e, fileField, fileName, active, activeOption) => 
 }
 
 /**
- * 发送本地文件：优先用 Windows 可读路径直传（NapCat 在 Windows 侧时免 HTTP 中转），
- * 失败后回退框架 HTTP 文件服务地址。
+ * 发送本地文件：转成框架 HTTP 文件服务地址后发送。
  * @param {*} e 事件/机器人对象
  * @param {Object} options
  * @param {string} options.filepath 本地文件路径
@@ -209,17 +188,6 @@ const sendFileSegment = async (e, fileField, fileName, active, activeOption) => 
  * @returns {Promise<*>}
  */
 export const sendLocalFile = async (e, { filepath, fileName, active, activeOption } = {}) => {
-  const winPath = toWindowsPath(filepath)
-  if (winPath) {
-    let result
-    try {
-      result = await sendFileSegment(e, winPath, fileName, active, activeOption)
-    } catch (error) {
-      result = { error }
-    }
-    if (!hasError(result)) return result
-    logger.debug(`[FileSend] Windows 路径发送失败，回退 HTTP 文件地址: ${winPath}`)
-  }
   return await sendFileSegment(e, await toFileUrl(e, filepath, fileName), fileName, active, activeOption)
 }
 
