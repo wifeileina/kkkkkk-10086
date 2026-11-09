@@ -1,4 +1,4 @@
-import { Base, Config, UploadRecord, Networks, Render, Common, downloadFile, downloadVideo, uploadFile, baseHeaders, processImageUrl, makeForwardMsg, makeForwardMsgBatched, getRemoteFileSize, markParseFailed, markParseLimited, canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent, isFileSendMode, isImageFileSendMode, buildMediaName, sendMediaFiles, sendMediaAsFile } from '../../utils/index.js'
+import { Base, Config, UploadRecord, Networks, Render, Common, downloadFile, downloadVideo, uploadFile, baseHeaders, processImageUrl, makeForwardMsg, makeForwardMsgBatched, getRemoteFileSize, markParseFailed, markParseLimited, canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent, isImageFileSendMode, buildMediaName, sendMediaFiles, shouldArchiveMedia } from '../../utils/index.js'
 import { getCachedData, setCachedData, runSingleFlightData } from '../../utils/ResourceCache.js'
 import { parseDouyinViaSharePage } from './sharePage.js'
 import { fetchDouyinDetailViaBrowser } from './webapi.js'
@@ -539,12 +539,24 @@ export class DouYin extends Base {
                 }
                 if (isImageFileSendMode()) {
                   const nameParts = buildDouyinNameParts(VideoData.data.aweme_detail)
-                  await sendMediaFiles(this.e, imageres.map((item, index) => ({
+                  const fileItems = imageres.map((item, index) => ({
                     source: item?.file,
                     baseName: buildMediaName({ ...nameParts, index, total: imageres.length, style: 'media' }),
                     ext: '.jpg',
                     headers: { Referer: 'https://www.douyin.com/', Cookie: Config.cookies.douyin || '' }
-                  })))
+                  }))
+                  // 图集 BGM 默认不单独发文件；只有图集会被打包时，才随压缩包一起发送
+                  const musicUrl = getDouyinMusicUrl(VideoData.data.aweme_detail.music)
+                  if (hasDouyinContent('bgm') && musicUrl && shouldArchiveMedia(fileItems)) {
+                    fileItems.push({
+                      source: musicUrl,
+                      baseName: buildMediaName(nameParts),
+                      ext: '.mp3',
+                      headers: { Referer: 'https://www.douyin.com/', Cookie: Config.cookies.douyin || '' }
+                    })
+                    this.bgmIncludedInArchive = true
+                  }
+                  await sendMediaFiles(this.e, fileItems)
                   break
                 }
                 const forwardTitle = buildDouyinForwardTitle(VideoData.data.aweme_detail)
@@ -693,14 +705,8 @@ export class DouYin extends Base {
             }
             const haspath = music_url && this.is_mp4 === false && music_url !== undefined
             if (haspath) {
-              if (isFileSendMode()) {
-                await sendMediaAsFile(this.e, {
-                  source: music_url,
-                  baseName: buildMediaName(buildDouyinNameParts(VideoData.data.aweme_detail)),
-                  ext: '.mp3',
-                  headers: { Referer: 'https://www.douyin.com/', Cookie: Config.cookies.douyin || '' }
-                })
-              } else {
+              // 图集 BGM 不单独按文件发送；已随压缩包发送时跳过，否则按普通音频发送
+              if (!this.bgmIncludedInArchive) {
                 await this.e.reply(await UploadRecord(this.e, music_url, 0, Config.douyin.sendHDrecord ? false : true))
               }
             }

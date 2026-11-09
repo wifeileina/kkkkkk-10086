@@ -49,7 +49,30 @@ export const getFileArchiveMinCount = () => {
   return Number.isFinite(value) && value >= 1 ? Math.floor(value) : 3
 }
 
-const clean = (value) => String(value ?? '').replace(ILLEGAL_RE, ' ').replace(/\s+/g, ' ').trim()
+/** 当前媒体集合是否会被打包（按组计数；需在追加额外条目前调用） */
+export const shouldArchiveMedia = (items = []) => {
+  const valid = items.filter((item) => item?.source && item?.baseName)
+  if (!valid.length) return false
+  // 按「组」计数：实况的 jpg+mp4 同名同组，只算一条
+  const groupCount = new Set(valid.map((item) => String(item.baseName))).size
+  return isFileArchiveEnabled() && groupCount > getFileArchiveMinCount()
+}
+
+// 代理区码点（emoji 等非 BMP 字符）：协议端处理文件名时可能序列化出非法 UTF-8，统一剔除
+const ASTRAL_RE = /[\uD800-\uDFFF]/g
+
+const clean = (value) => String(value ?? '').replace(ASTRAL_RE, '').replace(ILLEGAL_RE, ' ').replace(/\s+/g, ' ').trim()
+
+// 平台缺失简介时会用「抖音视频 / 快手作品」这类占位词，作为文件名没有信息量
+const PLACEHOLDER_DESC_RE = /^(?:抖音|快手|小红书|哔哩哔哩|B站)?(?:视频|作品|笔记|图文)(?:_[^\s]+)?$/
+
+const pad2 = (value) => String(value).padStart(2, '0')
+
+/** 当日日期：YYYY-MM-DD */
+const todayText = () => {
+  const date = new Date()
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+}
 
 /** 中间省略：保留首尾，超出部分用 ... 表示 */
 export const middleEllipsis = (text, max = MAX_DESC_LEN) => {
@@ -81,17 +104,24 @@ export const buildMediaName = ({ author, description, tags = [], index, total, s
     .map((tag) => `#${tag}`)
     .join(' ')
 
+  const rawDesc = clean(description)
+  // 没有真实简介（或只有「抖音视频」这类占位词）时用日期替代
+  const validDesc = PLACEHOLDER_DESC_RE.test(rawDesc) ? '' : rawDesc
+
   let indexSuffix = ''
   if (Number.isFinite(index) && Number.isFinite(total) && total > 1) {
     indexSuffix = index === 0 ? '_0' : `_${String(index).padStart(2, '0')}`
+  } else if (!validDesc) {
+    // 无简介时以日期标识，同样带上排序
+    indexSuffix = '_0'
   }
 
   // 先为「标签 + 序号」预留长度，保证标签不被截断；只对描述做中间省略
   const reserved = (tagText ? tagText.length + 1 : 0) + indexSuffix.length + (authorText ? authorText.length + 2 : 0)
   const descBudget = Math.max(12, MAX_NAME_LEN - reserved)
-  const descText = middleEllipsis(clean(description), descBudget)
+  const descText = middleEllipsis(validDesc || todayText(), descBudget)
 
-  const name = [authorText ? `@${authorText}` : '', descText].filter(Boolean).join(style === 'media' ? ' ' : '-') || '解析结果'
+  const name = [authorText ? `@${authorText}` : '', descText].filter(Boolean).join(style === 'media' ? ' ' : '-')
   const withTags = tagText ? `${name} ${tagText}` : name
   return `${withTags.slice(0, MAX_NAME_LEN - indexSuffix.length)}${indexSuffix}`
 }
@@ -375,9 +405,7 @@ export const sendMediaFiles = async (e, items = []) => {
   const valid = items.filter((item) => item?.source && item?.baseName)
   if (!valid.length) return
 
-  // 按「组」计数：实况的 jpg+mp4 同名同组，只算一条，避免 2 组实况就误触发打包
-  const groupCount = new Set(valid.map((item) => String(item.baseName))).size
-  if (isFileArchiveEnabled() && groupCount > getFileArchiveMinCount()) {
+  if (shouldArchiveMedia(valid)) {
     let result
     try {
       result = await sendMediaArchive(e, valid)
