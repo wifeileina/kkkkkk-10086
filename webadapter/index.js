@@ -7,6 +7,7 @@
  */
 import Config from '../module/utils/Config.js'
 import Version from '../module/utils/Version.js'
+import { getCacheStats, clearCache } from '../module/utils/CacheManager.js'
 import { supportGuoba } from '../guoba.support.js'
 import { getStatisticsDB } from '../module/db/index.js'
 
@@ -260,6 +261,17 @@ export function init(ctx) {
     }
     await db.resetStatistics()
     res.json({ ok: true, msg: '统计已清除' })
+  }))
+
+  // ====== 缓存占用 ======
+  registerApi('get', '/kkkkkk-10086/cache', safe(async (_req, res) => {
+    res.json({ ok: true, data: await getCacheStats() })
+  }))
+
+  // ====== 清理缓存 ======
+  registerApi('post', '/kkkkkk-10086/cache/clear', safe(async (_req, res) => {
+    const { freed } = await clearCache()
+    res.json({ ok: true, data: { freed } })
   }))
 
   // ====== 群组列表 ======

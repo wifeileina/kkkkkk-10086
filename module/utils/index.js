@@ -12,6 +12,7 @@ export { mergeFile, getMediaDuration, getMediaFrameRate, loopVideoWithTransition
 export { default as UploadRecord } from './UploadRecord.js'
 export * from './ParsePermission.js'
 export * from './FileSend.js'
+export * from './CacheManager.js'
 export * from './ImageHelper.js'
 export * from './EmojiReaction.js'
 export { makeForwardMsg, makeForwardMsgBatched, MAX_FORWARD_NODES, MAX_FORWARD_MESSAGES, MAX_FORWARD_BYTES } from './ForwardMsg.js'

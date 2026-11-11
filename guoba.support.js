@@ -465,6 +465,13 @@ const schemas = [
   input('request.proxy.auth.password', '代理密码', '', 'InputPassword'),
 
   group('高级设置'),
+  divider('增强能力'),
+  radio('advanced.tierOverLimitPermission', '超限档位权限', permissionOptions, '使用「xk解析档位」时，允许选择体积超过上限档位的身份；其他人仍能看到档位，但按右侧显示方式处理'),
+  radio('advanced.tierOverLimitDisplay', '超限档位显示', [
+    option('开放', 'open'),
+    option('限制', 'limit'),
+    option('隐藏', 'hide')
+  ], '开放：全部档位可选；限制：超限档位单独列出但不可选；隐藏：超限档位折叠为「存在更高档位」'),
   divider('文件发送'),
   radio('advanced.fileSendMode', '文件发送模式', [
     option('文件', 'all'),

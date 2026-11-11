@@ -2,7 +2,7 @@ import { KuaiShou, GetKuaishouID, KuaishouData } from '../module/platform/kuaish
 import { Bilibili, getBilibiliID } from '../module/platform/bilibili/index.js'
 import { DouYin, getDouyinID } from '../module/platform/douyin/index.js'
 import { Xiaohongshu, getXiaohongshuID } from '../module/platform/xiaohongshu/index.js'
-import { Config, Common, UploadRecord, wrapWithErrorHandler, downloadVideo, baseHeaders, hasPermission, permissionLabel, isCommandParse, runWithFileSendMode } from '../module/utils/index.js'
+import { Config, Common, UploadRecord, wrapWithErrorHandler, downloadVideo, baseHeaders, hasPermission, permissionLabel, isCommandParse, runWithFileSendMode, TIER_SELECTION_TIMEOUT_SECONDS } from '../module/utils/index.js'
 import { arbitrationShouldParse, markParseFailed } from '../module/utils/EmojiReaction.js'
 import { douyinParseQueue, bilibiliParseQueue, kuaishouParseQueue, xiaohongshuParseQueue } from '../module/utils/ConcurrencyQueue.js'
 import { getStatisticsDB } from '../module/db/index.js'
@@ -263,7 +263,13 @@ export class kkkTools extends plugin {
     if (/douyin\.com|iesdouyin\.com/i.test(e.msg)) {
       return await this._douyin(e)
     }
-    await e.reply('请发送含视频链接的「xk解析档位」指令')
+    if (/xiaohongshu\.com|xhslink\.c(?:n|om)/i.test(e.msg)) {
+      return await this._xiaohongshu(e)
+    }
+    if (/v\.kuaishou\.com|kuaishou\.com\/f\//i.test(e.msg)) {
+      return await this._kuaishou(e)
+    }
+    await e.reply('请发送含视频链接的「xk解析档位」指令（支持抖音 / B站 / 快手 / 小红书）')
     return true
   }
 
@@ -343,17 +349,17 @@ export class kkkTools extends plugin {
           if (douyinSelections.get(key) === selection) douyinSelections.delete(key)
         }, result.timeoutSeconds * 1000)
       }
-      if (result?.type === 'douyin_tier_selection') {
+      if (result?.type === 'douyin_tier_selection' && result.tiers?.length) {
         const key = getSelectionKey(e)
         const selection = {
           aweme_id: result.aweme_id,
           tiers: result.tiers,
-          expiresAt: Date.now() + 120000
+          expiresAt: Date.now() + TIER_SELECTION_TIMEOUT_SECONDS * 1000
         }
         tierSelections.set(key, selection)
         setTimeout(() => {
           if (tierSelections.get(key) === selection) tierSelections.delete(key)
-        }, 120000)
+        }, TIER_SELECTION_TIMEOUT_SECONDS * 1000)
       }
       await recordParseStatistics(e, 'douyin')
     }
@@ -379,6 +385,18 @@ export class kkkTools extends plugin {
       if (tierSel.platform === 'bilibili') {
         await this.runWithErrorHandler(e, 'B站指定档位下载', async event => {
           await this._bilibili(event, tier.qn, tierSel.url)
+        })
+        return true
+      }
+      if (tierSel.platform === 'xiaohongshu') {
+        await this.runWithErrorHandler(e, '小红书指定档位下载', async event => {
+          await this._xiaohongshu(event, tier.url, tierSel.url)
+        })
+        return true
+      }
+      if (tierSel.platform === 'kuaishou') {
+        await this.runWithErrorHandler(e, '快手指定档位下载', async event => {
+          await this._kuaishou(event, tier.url, tierSel.url)
         })
         return true
       }
@@ -467,19 +485,19 @@ export class kkkTools extends plugin {
     await bilibiliParseQueue.run(async () => {
       const id = await getBilibiliID(url)
       const res = await new Bilibili(e, id, { forceBurnDanmaku, tierMode: e._xkTierCommand }).RESOURCES(id)
-      if (res?.type === 'bilibili_tier_selection') {
+      if (res?.type === 'bilibili_tier_selection' && res.tiers?.length) {
         const key = getSelectionKey(e)
         const selection = {
           platform: 'bilibili',
           bvid: res.bvid,
           url,
           tiers: res.tiers,
-          expiresAt: Date.now() + 120000
+          expiresAt: Date.now() + TIER_SELECTION_TIMEOUT_SECONDS * 1000
         }
         tierSelections.set(key, selection)
         setTimeout(() => {
           if (tierSelections.get(key) === selection) tierSelections.delete(key)
-        }, 120000)
+        }, TIER_SELECTION_TIMEOUT_SECONDS * 1000)
       }
     })
     await recordParseStatistics(e, 'bilibili')
@@ -502,12 +520,33 @@ export class kkkTools extends plugin {
     return await this.runWithErrorHandler(e, '快手视频解析', this._kuaishou)
   }
 
-  async _kuaishou(e) {
-    const url = e.msg.replaceAll('\\', '').match(/(https:\/\/v\.kuaishou\.com\/\w+|https:\/\/www\.kuaishou\.com\/f\/[a-zA-Z0-9]+)/g)
+  async _kuaishou(e, tierUrl, explicitUrl) {
+    const url = (explicitUrl || e.msg).replaceAll('\\', '').match(/(https:\/\/v\.kuaishou\.com\/\w+|https:\/\/www\.kuaishou\.com\/f\/[a-zA-Z0-9]+)/g)
+    if (!url) {
+      logger.warn(`未能在消息中找到有效的快手链接: ${e.msg}`)
+      markParseFailed(e, '未找到有效的快手链接')
+      return true
+    }
     await kuaishouParseQueue.run(async () => {
       const Iddata = await GetKuaishouID(url)
       const WorkData = await new KuaishouData(Iddata.type).GetData({ photoId: Iddata.photoId || Iddata.id })
-      await new KuaiShou(e, Iddata).Action(WorkData)
+      const res = await new KuaiShou(e, Iddata, {
+        tierMode: Boolean(e._xkTierCommand) && !tierUrl,
+        tierUrl
+      }).Action(WorkData)
+      if (res?.type === 'kuaishou_tier_selection' && res.tiers?.length) {
+        const key = getSelectionKey(e)
+        const selection = {
+          platform: 'kuaishou',
+          url: Array.isArray(url) ? url[0] : url,
+          tiers: res.tiers,
+          expiresAt: Date.now() + TIER_SELECTION_TIMEOUT_SECONDS * 1000
+        }
+        tierSelections.set(key, selection)
+        setTimeout(() => {
+          if (tierSelections.get(key) === selection) tierSelections.delete(key)
+        }, TIER_SELECTION_TIMEOUT_SECONDS * 1000)
+      }
     })
     await recordParseStatistics(e, 'kuaishou')
     return true
@@ -525,8 +564,8 @@ export class kkkTools extends plugin {
     return await this.runWithErrorHandler(e, '小红书笔记解析', this._xiaohongshu)
   }
 
-  async _xiaohongshu(e) {
-    const url = e.msg.replaceAll('\\', '').match(/https?:\/\/[^\s"'<>]+/i)?.[0]
+  async _xiaohongshu(e, tierUrl, explicitUrl) {
+    const url = (explicitUrl || e.msg).replaceAll('\\', '').match(/https?:\/\/[^\s"'<>]+/i)?.[0]
     if (!url) {
       logger.warn(`未能在消息中找到有效的小红书链接: ${e.msg}`)
       markParseFailed(e, '未找到有效的小红书链接')
@@ -535,7 +574,23 @@ export class kkkTools extends plugin {
 
     await xiaohongshuParseQueue.run(async () => {
       const iddata = await getXiaohongshuID(url)
-      await new Xiaohongshu(e, iddata).XiaohongshuHandler(iddata)
+      const res = await new Xiaohongshu(e, iddata, {
+        tierMode: Boolean(e._xkTierCommand) && !tierUrl,
+        tierUrl
+      }).XiaohongshuHandler(iddata)
+      if (res?.type === 'xiaohongshu_tier_selection' && res.tiers?.length) {
+        const key = getSelectionKey(e)
+        const selection = {
+          platform: 'xiaohongshu',
+          url,
+          tiers: res.tiers,
+          expiresAt: Date.now() + TIER_SELECTION_TIMEOUT_SECONDS * 1000
+        }
+        tierSelections.set(key, selection)
+        setTimeout(() => {
+          if (tierSelections.get(key) === selection) tierSelections.delete(key)
+        }, TIER_SELECTION_TIMEOUT_SECONDS * 1000)
+      }
     })
     await recordParseStatistics(e, 'xiaohongshu')
     return true

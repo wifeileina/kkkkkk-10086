@@ -1,5 +1,6 @@
 import { Base, Render, Config, Networks, mergeFile, Common, baseHeaders, downloadFile, uploadFile, downloadVideo, processImageUrl, makeForwardMsgBatched, markParseFailed, markParseLimited, canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, overLimitTipSuffix, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent } from '../../utils/index.js'
 import { isImageFileSendMode, buildMediaName, sendMediaFiles } from '../../utils/FileSend.js'
+import { getTierSizeLimitBytes, buildTierMessage } from '../../utils/ParsePermission.js'
 import { getCachedData, setCachedData, runSingleFlightData, runSingleFlight } from '../../utils/ResourceCache.js'
 import { bilibiliApiUrls, DynamicType, AdditionalType, wbi_sign } from '@ikenxuan/amagi'
 import { getBilibiliData } from './api.js'
@@ -153,12 +154,17 @@ export class Bilibili extends Base {
             }
             // 档位名里已含分辨率（如「流畅 360P」），第二位改为该档视频+音频的体积，避免重复分辨率
             const tierAudioUrl = getBilibiliPayload(playUrlData)?.dash?.audio?.[0]?.base_url || getBilibiliPayload(playUrlData)?.dash?.audio?.[0]?.baseUrl || ''
-            const lines = await Promise.all(tierList.map(async (t, n) => {
-              const sizeMb = await resolveBilibiliTierSize(t, tierAudioUrl, iddata.bvid)
-              return `${n + 1}. ${t.label}${sizeMb ? `  ${sizeMb}MB` : ''}`
+            const sizedTiers = await Promise.all(tierList.map(async (tier) => {
+              const size = await resolveBilibiliTierSize(tier, tierAudioUrl, iddata.bvid)
+              return {
+                ...tier,
+                sizeBytes: size.bytes,
+                line: `${tier.label}${size.mb ? `  ${size.mb}MB` : ''}`
+              }
             }))
-            await this.e?.reply?.('该视频支持以下清晰度档位，回复序号即可选择下载：\n' + lines.join('\n'))
-            return { type: 'bilibili_tier_selection', bvid: iddata.bvid, tiers: tierList }
+            const { text, selectable } = buildTierMessage(this.e, sizedTiers, getTierSizeLimitBytes('bilibili'))
+            await this.e?.reply?.(text)
+            return { type: 'bilibili_tier_selection', bvid: iddata.bvid, tiers: selectable }
           }
 
           const { owner, pic, title, stat, desc } = infoData.data.data
@@ -190,6 +196,7 @@ export class Bilibili extends Base {
               ? `${displayPickStream.width}×${displayPickStream.height}`
               : (playUrlStream?.width ? `${playUrlStream.width}×${playUrlStream.height}` : ''),
             codec: biliCodecMap[biliStreamCodec] || '',
+            hdr: biliHdrLabel(displayPickStream?.id ?? playUrlStream?.id),
             size: ((displayPickStream?.size || playUrlStream?.size || 0) / (1024 * 1024)).toFixed(2),
             sizeLimit: Config.bilibili.maxAutoVideoSize || 0,
             sizeSet: '',
@@ -1093,7 +1100,7 @@ export class Bilibili extends Base {
       if (!videoUrl || !audioUrl) {
         const videoStream = getBilibiliVideoStream(playUrlData)
         if (videoStream?.url) {
-          await downloadVideo(this.e, { video_url: videoStream.url, title: { timestampTitle: `tmp_${Date.now()}.mp4`, originTitle: `${this.downloadfilename}.mp4` }, cacheKey: `bilibili:${this.downloadfilename || videoStream.url}`, nameParts: buildBiliNameParts(infoData, this.downloadfilename) })
+          await downloadVideo(this.e, { video_url: videoStream.url, title: { timestampTitle: `tmp_${Date.now()}.mp4`, originTitle: `${this.downloadfilename}.mp4` }, cacheKey: `bilibili:${this.downloadfilename || videoStream.url}:${this.tierQn ?? 'auto'}`, nameParts: buildBiliNameParts(infoData, this.downloadfilename) })
         } else {
           logger.error("无法下载视频,请配置CooKie后重试")
         }
@@ -1189,7 +1196,7 @@ export class Bilibili extends Base {
             }
           }
         }
-        await downloadVideo(this.e, { video_url: videoUrl, title: { timestampTitle: `tmp_${Date.now()}.mp4`, originTitle: `${this.downloadfilename}.mp4` }, cacheKey: `bilibili:${this.downloadfilename || videoUrl}`, nameParts: buildBiliNameParts(infoData, this.downloadfilename) })
+        await downloadVideo(this.e, { video_url: videoUrl, title: { timestampTitle: `tmp_${Date.now()}.mp4`, originTitle: `${this.downloadfilename}.mp4` }, cacheKey: `bilibili:${this.downloadfilename || videoUrl}:${this.tierQn ?? 'auto'}`, nameParts: buildBiliNameParts(infoData, this.downloadfilename) })
       } else {
         logger.error("无法下载视频,请配置CooKie后重试")
       }
@@ -1377,6 +1384,14 @@ const qnd = {
   127: '超高清 8K'
 }
 
+/** 信息卡 HDR 标识：B站 qn 126 为杜比视界，125 为真彩色 HDR */
+const biliHdrLabel = (qn) => {
+  const id = Number(qn)
+  if (id === 126) return '杜比视界'
+  if (id === 125) return 'HDR'
+  return ''
+}
+
 /**
  * 从播放流响应中提取全部可选的清晰度档位。
  * 登录态/游客态响应结构不同（dash.video 逐条码流 vs durl+accept_description），统一归约为 {qn, label} 列表。
@@ -1431,17 +1446,19 @@ const buildBilibiliTierList = (playUrlData) => {
  * @param {{qn?: number, baseUrl?: string, sizeBytes?: number}} tier - 档位
  * @param {string} audioUrl - 音频流URL（各档共用）
  * @param {string} bvid - 视频BV号
- * @returns {Promise<string>} 形如 "8.32" 的MB数值，取不到则为空串
+ * @returns {Promise<{mb: string, bytes: number}>} 体积（MB 文本 + 字节数），取不到时为空
  */
 const resolveBilibiliTierSize = async (tier, audioUrl, bvid) => {
-  if (tier?.sizeBytes > 0) return (tier.sizeBytes / (1024 * 1024)).toFixed(2)
-  if (!tier?.baseUrl) return ''
+  if (tier?.sizeBytes > 0) {
+    return { mb: (tier.sizeBytes / (1024 * 1024)).toFixed(2), bytes: tier.sizeBytes }
+  }
+  if (!tier?.baseUrl) return { mb: '', bytes: 0 }
   try {
-    const size = await getvideosize(tier.baseUrl, audioUrl, bvid)
-    return Number(size) > 0 ? size : ''
+    const size = Number(await getvideosize(tier.baseUrl, audioUrl, bvid))
+    return size > 0 ? { mb: String(size), bytes: Math.round(size * 1024 * 1024) } : { mb: '', bytes: 0 }
   } catch (error) {
     logger.debug(`[B站] 档位体积获取失败(qn=${tier?.qn}): ${error?.message || error}`)
-    return ''
+    return { mb: '', bytes: 0 }
   }
 }
 

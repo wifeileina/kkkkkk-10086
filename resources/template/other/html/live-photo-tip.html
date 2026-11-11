@@ -19,6 +19,10 @@
     --no-text: #d70015;   --no-bg: rgba(255,59,48,0.13);
     --tip-text: #00408c;  --tip-bg: rgba(0,113,227,0.10);
   }
+  .row-badge { flex-shrink:0; font-size:13px; font-weight:600; border-radius:999px; padding:4px 12px; white-space:nowrap; }
+  .badge-ok { background:var(--ok-bg); color:var(--ok-text); }
+  .badge-warn { background:var(--warn-bg); color:var(--warn-text); }
+  .badge-no { background:var(--no-bg); color:var(--no-text); }
   #root.dark-mode {
     --text: #f2f2f4;
     --text2: #a3a3a8;
@@ -47,17 +51,17 @@
 
     <div style="animation:rise .5s cubic-bezier(.22,.61,.36,1) both;">
       <div style="font-size:clamp(26px,4vw,34px);font-weight:700;letter-spacing:0.01em;line-height:1.15;color:var(--text);margin-bottom:6px;">实况图跨系统支持</div>
-      <div style="font-size:15px;line-height:1.6;color:var(--text2);max-width:640px;">小卡解析 | Live Photo 生成方式：单文件 = JPEG 图片 + XMP 元数据 + 末尾追加 MP4 视频。仅兼容单文件式 Motion Photo 系统。</div>
+      <div style="font-size:15px;line-height:1.6;color:var(--text2);max-width:640px;">小卡解析 | Live Photo 生成方式：单文件 = JPEG 图片 + XMP 元数据 + 末尾追加 MP4 视频。仅兼容单文件式 Motion Photo 系统。当前设置：<strong style="color:var(--text);">{{systemLabel}}</strong></div>
     </div>
 
     <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:24px;margin-bottom:24px;">
       <div style="flex:1 1 200px;background:var(--card1);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border-radius:16px;padding:16px;box-shadow:0 2px 14px var(--shadow1);box-sizing:border-box;animation:rise .5s .06s cubic-bezier(.22,.61,.36,1) both;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
           <span style="width:10px;height:10px;border-radius:50%;background:#34C759;display:inline-block;box-shadow:0 0 8px rgba(52,199,89,0.6);"></span>
-          <span style="font-size:13px;font-weight:600;letter-spacing:0.06em;color:var(--text2);text-transform:uppercase;">实测支持</span>
-          <span style="font-size:24px;font-weight:700;letter-spacing:0;color:var(--text);margin-left:auto;">3</span>
+          <span style="font-size:13px;font-weight:600;letter-spacing:0.06em;color:var(--text2);text-transform:uppercase;">当前可用</span>
+          <span style="font-size:24px;font-weight:700;letter-spacing:0;color:var(--text);margin-left:auto;">{{supportCount}}</span>
         </div>
-        <div style="font-size:14px;line-height:1.5;color:var(--text);">Google / Pixel、小米 HyperOS、OPPO ColorOS</div>
+        <div style="font-size:14px;line-height:1.5;color:var(--text);">{{supportText}}</div>
       </div>
       <div style="flex:1 1 200px;background:var(--card1);backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);border-radius:16px;padding:16px;box-shadow:0 2px 14px var(--shadow2);box-sizing:border-box;animation:rise .5s .12s cubic-bezier(.22,.61,.36,1) both;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
@@ -82,33 +86,33 @@
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:0.5px solid var(--border);">
         <div>
           <div style="font-size:16px;font-weight:600;color:var(--text);">Google / Pixel</div>
-          <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">单文件（JPEG + MP4） · 标准 Motion Photo 格式</div>
+          <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">{{googleRow.note}}</div>
         </div>
-        <span style="flex-shrink:0;background:var(--ok-bg);color:var(--ok-text);font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">✓ 支持</span>
+        <span class="row-badge {{googleRow.badgeClass}}">{{googleRow.badgeText}}</span>
       </div>
 
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:0.5px solid var(--border);">
         <div>
           <div style="font-size:16px;font-weight:600;color:var(--text);">小米 HyperOS</div>
-          <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">单文件（JPEG + MP4） · 兼容 Google 标准 + 小米扩展</div>
+          <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">{{xiaomiRow.note}}</div>
         </div>
-        <span style="flex-shrink:0;background:var(--ok-bg);color:var(--ok-text);font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">✓ 支持</span>
+        <span class="row-badge {{xiaomiRow.badgeClass}}">{{xiaomiRow.badgeText}}</span>
       </div>
 
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:0.5px solid var(--border);">
         <div>
           <div style="font-size:16px;font-weight:600;color:var(--text);">OPPO ColorOS</div>
-          <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">单文件（JPEG + MP4） · 兼容 Google 标准 + OPPO 扩展</div>
+          <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">{{oppoRow.note}}</div>
         </div>
-        <span style="flex-shrink:0;background:var(--ok-bg);color:var(--ok-text);font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">✓ 支持</span>
+        <span class="row-badge {{oppoRow.badgeClass}}">{{oppoRow.badgeText}}</span>
       </div>
 
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:0.5px solid var(--border);">
         <div>
           <div style="font-size:16px;font-weight:600;color:var(--text);">华为 / 荣耀</div>
-          <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">单文件（JPEG + 文件末尾特殊标记） · 未经实机验证</div>
+          <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">{{huaweiRow.note}}</div>
         </div>
-        <span style="flex-shrink:0;background:var(--warn-bg);color:var(--warn-text);font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">⚠ 理论支持</span>
+        <span class="row-badge {{huaweiRow.badgeClass}}">{{huaweiRow.badgeText}}</span>
       </div>
 
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:0.5px solid var(--border);">
@@ -116,7 +120,7 @@
           <div style="font-size:16px;font-weight:600;color:var(--text);">iPhone</div>
           <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">双文件（HEIC + MOV） · 独立存储，无法合成单文件</div>
         </div>
-        <span style="flex-shrink:0;background:var(--no-bg);color:var(--no-text);font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">✗ 不支持</span>
+        <span class="row-badge badge-no">✗ 不支持</span>
       </div>
 
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 18px;">
@@ -124,7 +128,7 @@
           <div style="font-size:16px;font-weight:600;color:var(--text);">vivo OriginOS</div>
           <div style="font-size:13px;color:var(--text3);margin-top:3px;line-height:1.5;">双文件（JPG + MP4） · 独立存储，无法合成单文件</div>
         </div>
-        <span style="flex-shrink:0;background:var(--no-bg);color:var(--no-text);font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;">✗ 不支持</span>
+        <span class="row-badge badge-no">✗ 不支持</span>
       </div>
     </div>
 

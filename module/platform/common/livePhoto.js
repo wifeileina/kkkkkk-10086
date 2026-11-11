@@ -27,11 +27,48 @@ const getMotionPhotoSystem = () => {
 const getTimestampName = () => `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 const livePhotoTipText = '实况照片已生成，保存原图到相册后可识别为实况图'
 
+const SYSTEM_LABELS = {
+  google: 'Google / Pixel',
+  xiaomi: '小米 HyperOS',
+  oppo: 'OPPO ColorOS',
+  huawei_honor: '华为 / 荣耀'
+}
+
+/**
+ * 按当前「Live Photo 兼容系统」设置生成提示图里的一行状态：
+ * 只有当前设置与 Google 标准会被标注为支持，其余系统标注「当前设置暂不支持」。
+ */
+const buildSystemRow = (system, key, note) => {
+  if (key === system) {
+    return { note: `${note} · 当前设置`, badgeClass: 'badge-ok', badgeText: '✓ 支持' }
+  }
+  // Google 标准容器始终写入，任何设置下都保持基础兼容
+  if (key === 'google') return { note, badgeClass: 'badge-ok', badgeText: '✓ 支持' }
+  return { note, badgeClass: 'badge-warn', badgeText: '⚠ 当前设置暂不支持' }
+}
+
 export const buildLivePhotoTipMessage = async () => {
   try {
+    const system = getMotionPhotoSystem()
+    const systemLabel = SYSTEM_LABELS[system] || system
     return await Render('other/live-photo-tip', {
       title: '保存原图',
-      description: '点击「查看原图」后保存到相册即可识别为实况照片'
+      description: '点击「查看原图」后保存到相册即可识别为实况照片',
+      systemLabel,
+      // Google 标准始终可用；当前设置为小米/OPPO 时再计入一个实测系统
+      supportCount: system === 'xiaomi' || system === 'oppo' ? 2 : 1,
+      supportText: system === 'xiaomi' || system === 'oppo'
+        ? `Google / Pixel（标准）、${systemLabel}（当前设置）`
+        : system === 'google' ? 'Google / Pixel（当前设置）' : 'Google / Pixel（标准）',
+      googleRow: buildSystemRow(system, 'google', '单文件（JPEG + MP4） · 标准 Motion Photo 格式'),
+      xiaomiRow: buildSystemRow(system, 'xiaomi', '单文件（JPEG + MP4） · 兼容 Google 标准 + 小米扩展'),
+      oppoRow: buildSystemRow(system, 'oppo', '单文件（JPEG + MP4） · 兼容 Google 标准 + OPPO 扩展'),
+      // 华为 / 荣耀始终保持「理论支持」，不受当前设置影响
+      huaweiRow: {
+        note: '单文件（JPEG + 文件末尾特殊标记） · 未经实机验证',
+        badgeClass: 'badge-warn',
+        badgeText: '⚠ 理论支持'
+      }
     })
   } catch (error) {
     logger.warn(`[实况图] 提示图渲染失败，使用文本回退: ${error?.message || error}`)

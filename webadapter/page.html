@@ -597,6 +597,16 @@ select.inp { cursor: pointer; }
       <div class="rows grid-status" id="statusRows"><div class="empty">加载中…</div></div>
     </div>
 
+    <div class="group">
+      <div class="group-head">
+        <h2>解析缓存</h2>
+        <div class="head-tools">
+          <button class="btn btn-danger btn-mini" id="clearCacheBtn" title="清理磁盘视频/图片缓存与内存缓存；改画质后清理一次即可立即生效">清理缓存</button>
+        </div>
+      </div>
+      <div class="rows grid-status" id="cacheRows"><div class="empty">加载中…</div></div>
+    </div>
+
     <div class="overview-duo">
       <div class="group">
         <div class="group-head"><h2>平台解析量</h2></div>
@@ -694,6 +704,7 @@ const SECTION_TAB = {
   '请求配置': 'upload',
   '代理配置': 'upload',
   '仲裁机制': 'advanced',
+  '增强能力': 'advanced',
   '并发解析': 'advanced',
   '惰解析': 'groups',
   '批量解析': 'advanced',
@@ -1451,6 +1462,7 @@ const ROW_GROUPS = [
   ['request.proxy.auth.username', 'request.proxy.auth.password'], // 代理认证
 
   // ── 高级设置 ──
+  ['advanced.tierOverLimitPermission', 'advanced.tierOverLimitDisplay'], // 超限档位权限 + 显示方式
   ['advanced.fileSendMode', ['advanced.fileSendArchive', 'advanced.fileSendArchiveMinCount']], // 内容发送方式 +（压缩包开关、触发数量）
   ['douyin.parseConcurrency', 'upload.downloadConcurrency'] // 平台解析并发 + 下载分片并发
 ]
@@ -1684,6 +1696,65 @@ async function loadStatus () {
     document.getElementById('statusDot').className = 'status-dot err'
     document.getElementById('statusLabel').textContent = '接口异常'
     document.getElementById('statusRows').innerHTML = `<div class="empty">读取运行状态失败：${esc(e.message)}</div>`
+  }
+  loadCache()
+}
+
+/** 字节数格式化 */
+function formatBytes (bytes) {
+  const value = Number(bytes) || 0
+  if (value < 1024) return `${value} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let size = value / 1024
+  let index = 0
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024
+    index++
+  }
+  return `${size.toFixed(size >= 100 ? 0 : size >= 10 ? 1 : 2)} ${units[index]}`
+}
+
+async function loadCache () {
+  const box = document.getElementById('cacheRows')
+  try {
+    const res = await fetch(API('/kkkkkk-10086/cache'))
+    const data = await res.json()
+    if (!data.ok) throw new Error(data.error || '读取缓存失败')
+    const d = data.data || {}
+    const disk = d.disk || { files: 0, bytes: 0 }
+    const video = d.video || { files: 0, bytes: 0 }
+    const images = d.images || { files: 0, bytes: 0 }
+    const memory = d.memory || { video: 0, data: 0 }
+    const rows = [
+      ['缓存占用', `<span class="badge">${esc(formatBytes(disk.bytes))}</span> <span class="badge">${esc(disk.files)} 个文件</span>`],
+      ['视频缓存', `<span class="badge">${esc(formatBytes(video.bytes))}</span> <span class="badge">${esc(video.files)} 个</span>`],
+      ['图片缓存', `<span class="badge">${esc(formatBytes(images.bytes))}</span> <span class="badge">${esc(images.files)} 个</span>`],
+      ['内存缓存', `<span class="badge">视频 ${esc(memory.video)} 条</span> <span class="badge">解析 ${esc(memory.data)} 条</span>`],
+      ['自动清理', d.removeCache ? `<span class="badge on">已开启</span> <span class="badge">保留 ${esc(d.cacheRetentionMinutes)} 分钟</span>` : '<span class="badge off">已关闭</span>']
+    ]
+    box.innerHTML = rows
+      .map(([k, v]) => `<div class="field"><div class="field-label"><label>${esc(k)}</label></div><div class="ctl">${v}</div></div>`)
+      .join('')
+  } catch (e) {
+    box.innerHTML = `<div class="empty">读取缓存占用失败：${esc(e.message)}</div>`
+  }
+}
+
+document.getElementById('clearCacheBtn').onclick = async () => {
+  if (!window.confirm('确定清理全部解析缓存吗？\n已下载的视频/图片文件与内存缓存都会被清空，之后再解析会重新下载。')) return
+  const btn = document.getElementById('clearCacheBtn')
+  btn.disabled = true
+  try {
+    const res = await fetch(API('/kkkkkk-10086/cache/clear'), { method: 'POST' })
+    const data = await res.json()
+    if (!data.ok) throw new Error(data.error || '清理失败')
+    const freed = data.data?.freed || {}
+    toast(`已清理 ${freed.files || 0} 个文件（${formatBytes(freed.bytes || 0)}）`, 'ok')
+    loadCache()
+  } catch (e) {
+    toast('清理失败：' + e.message, 'err')
+  } finally {
+    btn.disabled = false
   }
 }
 

@@ -57,6 +57,17 @@ export const clearCachedVideo = (key) => {
   if (key) entries.delete(key)
 }
 
+/** 当前内存缓存条目数，供状态展示 */
+export const getMemoryCacheCounts = () => ({ video: entries.size, data: dataEntries.size })
+
+/** 清空全部内存缓存（视频文件/链接 + 平台解析结果），返回被清理的条目数 */
+export const clearAllCache = () => {
+  const counts = getMemoryCacheCounts()
+  entries.clear()
+  dataEntries.clear()
+  return counts
+}
+
 /**
  * 清扫过期缓存条目：视频条目过期或其本地文件已被删除、解析条目过期时从缓存中移除。
  * 供定时器周期性调用，避免长时间运行下缓存 Map 无界增长。

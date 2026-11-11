@@ -26,6 +26,7 @@
     <div class="subline">
       <span>{{ctime}}</span>
       {{if video && video.resolution}}<span>{{video.resolution}}</span>{{/if}}
+      {{if video && video.hdr}}<span>{{video.hdr}}</span>{{/if}}
       {{if video && video.codec}}<span>{{video.codec}}</span>{{/if}}
       {{if video && video.volAdjusted && video.size !== ''}}<span>{{video.size}} <span class="quota-used-over">{{video.sizeSet}}</span>/{{video.sizeLimit}}MB</span>
       {{else if video && video.sizeExceeded && video.size !== ''}}<span><span class="quota-used-over">{{video.size}}</span>/{{video.sizeLimit}}MB</span>

@@ -1,4 +1,4 @@
-import { Base, Config, UploadRecord, Networks, Render, Common, downloadFile, downloadVideo, uploadFile, baseHeaders, processImageUrl, makeForwardMsg, makeForwardMsgBatched, getRemoteFileSize, markParseFailed, markParseLimited, canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent, isImageFileSendMode, buildMediaName, sendMediaFiles, shouldArchiveMedia } from '../../utils/index.js'
+import { Base, Config, UploadRecord, Networks, Render, Common, downloadFile, downloadVideo, uploadFile, baseHeaders, processImageUrl, makeForwardMsg, makeForwardMsgBatched, getRemoteFileSize, markParseFailed, markParseLimited, canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent, isImageFileSendMode, buildMediaName, sendMediaFiles, shouldArchiveMedia, getTierSizeLimitBytes, buildTierMessage } from '../../utils/index.js'
 import { getCachedData, setCachedData, runSingleFlightData } from '../../utils/ResourceCache.js'
 import { parseDouyinViaSharePage } from './sharePage.js'
 import { fetchDouyinDetailViaBrowser } from './webapi.js'
@@ -222,13 +222,18 @@ const buildDouyinTierList = (aweme) => {
     if (seen.has(dedupKey)) continue
     seen.add(dedupKey)
     const gear = String(it?.gear_name || '').trim()
+    const label = gear || getDouyinHeightLabel(h)
+    const sizeMb = (dataSize / (1024 * 1024)).toFixed(1)
+    const hdr = Boolean(it?.hdr_type || it?.play_addr?.hdr_type || it?.HDR_type)
     tiers.push({
       index: i, // 原始 bit_rate 下标，用于指定档下载
-      label: gear || getDouyinHeightLabel(h),
+      label,
       width: w,
       height: h,
-      sizeMb: (dataSize / (1024 * 1024)).toFixed(1),
-      hdr: Boolean(it?.hdr_type || it?.play_addr?.hdr_type || it?.HDR_type)
+      sizeBytes: dataSize,
+      sizeMb,
+      hdr,
+      line: `${label}${hdr ? ' (HDR)' : ''}  ${w}×${h}  ${sizeMb}MB`
     })
   }
   // 按体积升序展示（小→大），下载仍按 index 定位到原始码流
@@ -363,12 +368,9 @@ export class DouYin extends Base {
               await this.e?.reply?.('未获取到可用的清晰度档位信息')
               return { type: 'douyin_tier_selection', aweme_id: data.aweme_id, tiers: [] }
             }
-            const lines = tierList.map((t, n) => {
-              const hdrTag = t.hdr ? ' (HDR)' : ''
-              return `${n + 1}. ${t.label}${hdrTag}  ${t.width}×${t.height}  ${t.sizeMb}MB`
-            })
-            await this.e?.reply?.('该视频支持以下清晰度档位，回复序号即可选择下载：\n' + lines.join('\n'))
-            return { type: 'douyin_tier_selection', aweme_id: data.aweme_id, tiers: tierList }
+            const { text, selectable } = buildTierMessage(this.e, tierList, getTierSizeLimitBytes('douyin'))
+            await this.e?.reply?.(text)
+            return { type: 'douyin_tier_selection', aweme_id: data.aweme_id, tiers: selectable }
           }
           // 降级时评论数据置空（分享页不提供评论接口），避免重复请求失败的 Web API
           const CommentsData = usedSharePage
@@ -1005,7 +1007,8 @@ export class DouYin extends Base {
                     Referer: g_video_url,
                     Cookies: ''
                   },
-                  cacheKey: `douyin:${VideoData.data.aweme_detail?.aweme_id || g_video_url}`,
+                  // 缓存 key 带上档位下标，避免指定档位下载时复用其它档位的缓存文件
+                  cacheKey: `douyin:${VideoData.data.aweme_detail?.aweme_id || g_video_url}:${this.tierIndex ?? 'auto'}`,
                   nameParts: buildDouyinNameParts(VideoData.data.aweme_detail)
                 },
                 {

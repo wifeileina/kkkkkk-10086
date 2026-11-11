@@ -122,3 +122,99 @@ export const overLimitTipSuffix = () => {
       return `\n继续下载请引用回复：xk解析 权限：${overLimitPermissionLabel()}`
   }
 }
+
+// ============================================================
+// 档位列表的超限限制（xk解析档位）
+// 超出体积上限的档位对无权限者不予下载，但按「超限档位显示」配置决定展示方式。
+// ============================================================
+
+/** 档位回复的有效期（秒），超时后回复序号不再生效 */
+export const TIER_SELECTION_TIMEOUT_SECONDS = 30
+
+/** 超限档位权限等级：谁能选择体积超过上限的档位 */
+export const tierOverLimitPermissionLevel = () => Config.advanced?.tierOverLimitPermission || 'master'
+
+/** 超限档位权限等级的中文名 */
+export const tierOverLimitPermissionLabel = () => permissionLabel(tierOverLimitPermissionLevel())
+
+/**
+ * 超限档位显示方式：
+ * - open：开放，全部档位可选（不做限制）
+ * - limit：限制，超限档位单独列出但不可选
+ * - hide：隐藏，超限档位折叠为「存在更高档位」
+ * @returns {'open'|'limit'|'hide'}
+ */
+export const tierOverLimitDisplayMode = () => {
+  const mode = Config.advanced?.tierOverLimitDisplay
+  return ['open', 'limit', 'hide'].includes(mode) ? mode : 'limit'
+}
+
+/** 是否可自由选择超限档位（开放模式或权限达标） */
+export const canSelectOverLimitTier = (event) =>
+  tierOverLimitDisplayMode() === 'open' || hasPermission(event, tierOverLimitPermissionLevel())
+
+/**
+ * 平台体积上限（字节）；返回 0 表示不限制。
+ * @param {'douyin'|'bilibili'|'kuaishou'|'xiaohongshu'} platform
+ * @returns {number}
+ */
+export const getTierSizeLimitBytes = (platform) => {
+  const conf = Config?.[platform] || {}
+  if (conf.limitVideoSize === false) return 0
+  const mb = Number(conf.maxAutoVideoSize)
+  return Number.isFinite(mb) && mb > 0 ? mb * 1024 * 1024 : 0
+}
+
+/**
+ * 生成档位列表文案，并按权限拆分可选档位。
+ * @param {any} event 事件对象
+ * @param {Array<{ line: string, sizeBytes?: number }>} tiers 档位列表（每项含已排版好的单行文本）
+ * @param {number} limitBytes 体积上限（字节），0 表示不限制
+ * @returns {{ text: string, selectable: any[] }}
+ */
+export const buildTierMessage = (event, tiers = [], limitBytes = 0) => {
+  const limit = Number(limitBytes) || 0
+  // 体积信息齐全时按体积从大到小排列，超限档位自然排在前面；有缺失时保持平台原顺序。
+  // 同时带分辨率与体积的档位（抖音/小红书）优先按分辨率从大到小排列，避免高码率低分辨率档
+  // （如 720P 10.9MB）插到 2K 前面造成困惑。
+  const hasResolution = tiers.length > 0 && tiers.every((tier) => Number(tier?.width) > 0 && Number(tier?.height) > 0)
+  const hasSize = tiers.length > 0 && tiers.every((tier) => Number(tier?.sizeBytes) > 0)
+  const ordered = hasResolution
+    ? [...tiers].sort((a, b) => (Number(b.width) * Number(b.height)) - (Number(a.width) * Number(a.height))
+      || Number(b.sizeBytes || 0) - Number(a.sizeBytes || 0))
+    : hasSize
+      ? [...tiers].sort((a, b) => Number(b.sizeBytes) - Number(a.sizeBytes))
+      : tiers
+  const blocked = []
+  const allowed = []
+  for (const tier of ordered) {
+    const size = Number(tier?.sizeBytes) || 0
+    if (limit > 0 && size > limit) blocked.push(tier)
+    else allowed.push(tier)
+  }
+
+  // 无超限档位、有权限或开放模式：保持单列表，全部可选
+  if (!blocked.length || canSelectOverLimitTier(event)) {
+    const lines = ordered.map((tier, index) => `${index + 1}. ${tier.line}`)
+    return {
+      text: `该视频支持以下清晰度档位，回复序号即可选择下载（${TIER_SELECTION_TIMEOUT_SECONDS} 秒内有效）：\n${lines.join('\n')}`,
+      selectable: ordered
+    }
+  }
+
+  const permLabel = tierOverLimitPermissionLabel()
+  const sections = []
+  if (tierOverLimitDisplayMode() === 'hide') {
+    sections.push(`【存在更高档位】权限：${permLabel}`)
+  } else {
+    sections.push(`【不可选择】权限：${permLabel}`)
+    sections.push(...blocked.map((tier, index) => `${index + 1}. ${tier.line}`))
+  }
+  sections.push('【可选档位】')
+  sections.push(...(allowed.length
+    ? allowed.map((tier, index) => `${index + 1}. ${tier.line}`)
+    : ['当前权限下没有可选择的档位']))
+  if (allowed.length) sections.push(`回复序号即可选择下载（${TIER_SELECTION_TIMEOUT_SECONDS} 秒内有效）`)
+
+  return { text: sections.join('\n'), selectable: allowed }
+}

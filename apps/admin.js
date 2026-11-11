@@ -1,8 +1,7 @@
-import { Config, Render, Version, Common } from '../module/utils/index.js'
+import { Config, Render, Version, clearCache } from '../module/utils/index.js'
 import { bilibiliLogin } from '../module/platform/bilibili/login.js'
 import { dylogin } from '../module/platform/douyin/login.js'
 import { xiaohongshuLogin } from '../module/platform/xiaohongshu/login.js'
-import fs from 'fs'
 
 // 超限指令解析权限取值的中文名（与推送权限选项一致）
 const PermissionLabel = {
@@ -197,7 +196,7 @@ export class kkkAdmin extends plugin {
           permission: 'master'
         },
         {
-          reg: /^#?xk解析删除缓存$/,
+          reg: /^#?(?:xk)?(?:解析)?(?:删除|清理|清除)缓存$/,
           fnc: 'deltemp',
           permission: 'master'
         }
@@ -216,10 +215,17 @@ export class kkkAdmin extends plugin {
     }
   }
 
-  async deltemp() {
-    await removeAllFiles(Common.tempDri.video)
-      .then(() => logger.warn(Common.tempDri.video + '所有文件已删除'))
-      .catch((err) => logger.error('删除文件时出错:', err))
+  /**
+   * 删除全部解析缓存：内存缓存（已下载文件/链接、平台解析结果）+ 磁盘视频/图片缓存。
+   * 改画质后不清缓存会继续复用旧文件，看起来像设置没生效，故提供该指令与 Web 按钮。
+   * @param {any} [e] 消息事件（定时任务调用时无事件）
+   */
+  async deltemp(e) {
+    const { freed } = await clearCache()
+    const size = formatBytes(freed.bytes)
+    const text = `已清理缓存：磁盘文件 ${freed.files} 个（${size}），内存缓存 视频 ${freed.video} 条 / 解析 ${freed.data} 条`
+    logger.mark(`[缓存] ${text}`)
+    await e?.reply?.(`${text}\n再次解析将按当前画质设置重新下载`)
     return true
   }
 
@@ -504,24 +510,16 @@ function checkNumberValue(value, limit) {
   return num  // 在范围内，返回原值
 }
 
-function removeAllFiles(directory) {
-  return new Promise((resolve, reject) => {
-    if (!fs.existsSync(directory)) {
-      resolve()
-      return
-    }
-    fs.readdir(directory, (err, files) => {
-      if (err) {
-        reject(err)
-        return
-      }
-      const deletePromises = files.map(file => {
-        const filePath = `${directory}/${file}`
-        return new Promise((res, rej) => {
-          fs.unlink(filePath, err => err ? rej(err) : res())
-        })
-      })
-      Promise.all(deletePromises).then(resolve).catch(reject)
-    })
-  })
+/** 字节数格式化为易读单位 */
+function formatBytes(bytes) {
+  const value = Number(bytes) || 0
+  if (value < 1024) return `${value} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let size = value / 1024
+  let index = 0
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024
+    index++
+  }
+  return `${size.toFixed(size >= 100 ? 0 : size >= 10 ? 1 : 2)} ${units[index]}`
 }

@@ -7,7 +7,7 @@ import Common from '../../utils/Common.js'
 import { processImageUrl } from '../../utils/ImageHelper.js'
 import { makeForwardMsgBatched } from '../../utils/ForwardMsg.js'
 import { markParseFailed, markParseLimited } from '../../utils/EmojiReaction.js'
-import { canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, overLimitTipSuffix, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent } from '../../utils/ParsePermission.js'
+import { canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, overLimitTipSuffix, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent, getTierSizeLimitBytes, buildTierMessage } from '../../utils/ParsePermission.js'
 import { buildLivePhotoMessages, buildLivePhotoTipMessage, pickXiaohongshuImageUrl } from './livePhoto.js'
 import { buildXiaohongshuEmojiList, buildXiaohongshuText } from './comments.js'
 import { isImageFileSendMode, buildMediaName, sendMediaFiles } from '../../utils/FileSend.js'
@@ -65,13 +65,35 @@ const normalizeSendContent = () => Array.isArray(Config.xiaohongshu.sendContent)
 const formatCount = (value) => value ?? 0
 
 const collectVideoStreams = (streamData) => {
-  // 小红书码流分组键：EF5=H.265(无水印) EF4=H.264(有印) EF7/EF6=其他；EF5 优先保画质且无印
-  const codecPriority = ['EF5', 'EF4', 'EF7', 'EF6']
+  // 小红书码流分组键有两种命名：
+  // 登录态返回 EF5(H.265/无水印)、EF4(H.264)、EF7、EF6；
+  // 游客态返回 h265、h264、h266、av1。统一按「保画质优先」顺序拼接
+  const codecPriority = ['EF5', 'h265', 'EF4', 'h264', 'EF7', 'h266', 'EF6', 'av1']
   const streams = []
   for (const codec of codecPriority) {
     if (Array.isArray(streamData?.[codec])) streams.push(...streamData[codec])
   }
   return streams
+}
+
+/** 是否为「服务端降级」的笔记数据：视频笔记却只返回单一码流（通常只剩 720P） */
+const isDegradedNoteData = (noteData) => {
+  const card = getNoteCard(noteData)
+  if (!card?.video) return false
+  return collectVideoStreams(card?.video?.media?.stream).length <= 1
+}
+
+/**
+ * 请求笔记详情；小红书 feed 接口偶发只返回 720P 单一码流（实测约 1/5 概率），
+ * 遇到该降级响应时重试，默认重试 1 次；档位模式需要完整档位，可多试一次。
+ */
+const fetchNoteDetailWithStreams = async (fetcher, params, extraRetries = 1) => {
+  let noteData = await fetcher.fetchNoteDetail(params)
+  for (let i = 0; i < extraRetries && isDegradedNoteData(noteData); i++) {
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    noteData = await fetcher.fetchNoteDetail(params)
+  }
+  return noteData
 }
 
 const getQualityLevel = (stream) => {
@@ -81,6 +103,72 @@ const getQualityLevel = (stream) => {
   if (pixels >= 1920 * 1080) return '1080p'
   if (pixels >= 1280 * 720) return '720p'
   return '540p'
+}
+
+const QUALITY_LABELS = { '4k': '4K', '2k': '2K', '1080p': '1080P', '720p': '720P', '540p': '540P' }
+
+/**
+ * 小红书 HDR 类型标签（实测同笔记三条 4K 码流逐一下载比对得出）：
+ * hdr_type=1 为杜比视界（DoVi Profile 8.4，HLG 基底），hdr_type=2 为普通 HDR(HLG)，0 为 SDR
+ */
+const hdrTypeLabel = (hdrType) => {
+  const type = Number(hdrType) || 0
+  if (type === 1) return '杜比视界'
+  if (type === 2) return 'HDR'
+  return ''
+}
+
+/** 从笔记的码流数据提取全部清晰度档位（按体积升序，index 对应原始码流下标） */
+const buildXiaohongshuTierList = (card) => {
+  const streams = collectVideoStreams(card?.video?.media?.stream)
+  const seen = new Set()
+  const tiers = []
+  for (const stream of streams) {
+    const url = getStreamUrl(stream)
+    if (!url) continue
+    const width = stream.width || 0
+    const height = stream.height || 0
+    const size = Number(stream.size) || 0
+    // 同分辨率同体积的重复码流（多编码）合并，避免列表重复
+    const dedupKey = `${width}x${height}:${Math.round(size / 1024)}`
+    if (seen.has(dedupKey)) continue
+    seen.add(dedupKey)
+    const quality = getQualityLevel(stream)
+    const hdrLabel = hdrTypeLabel(stream.hdr_type)
+    const label = `${QUALITY_LABELS[quality] || quality.toUpperCase()}${hdrLabel ? ` ${hdrLabel}` : ''}`
+    const sizeMb = size ? (size / (1024 * 1024)).toFixed(1) : ''
+    const resolution = width && height ? `  ${width}×${height}` : ''
+    tiers.push({
+      label,
+      url,
+      width,
+      height,
+      size: size,
+      sizeBytes: size,
+      sizeMb,
+      line: `${label}${resolution}${sizeMb ? `  ${sizeMb}MB` : ''}`
+    })
+  }
+  // 无多档信息时退回默认地址，至少保证有可选项
+  const fallbackUrl = card?.video ? getVideoUrl(card, null) : ''
+  if (!tiers.length && fallbackUrl) {
+    tiers.push({ label: '默认', url: fallbackUrl, width: 0, height: 0, size: 0, sizeBytes: 0, sizeMb: '', line: '默认' })
+  }
+  return tiers.sort((a, b) => a.size - b.size)
+}
+
+/** 指定档位下载时按地址定位码流；否则按配置挑选 */
+const pickXiaohongshuStream = (card, tierUrl, e) => {
+  if (tierUrl) {
+    const matched = collectVideoStreams(card?.video?.media?.stream).find((stream) => getStreamUrl(stream) === tierUrl)
+    if (matched) {
+      // 用户显式指定档位：不再按体积上限拦截
+      xhsSizeExceeded = false
+      xhsExceedBytes = 0
+      return matched
+    }
+  }
+  return selectVideoStream(card?.video?.media?.stream, canBypassSizeLimit(e))
 }
 
 // 小红书 feed 返回的流项为 master_url + backup_urls（EF 分组），此处兜底兼容多种命名
@@ -237,10 +325,17 @@ const buildRenderComments = (comments, emojiData) => {
 }
 
 export class Xiaohongshu extends Base {
-  constructor (e, iddata) {
+  /**
+   * @param {*} e 事件对象
+   * @param {*} iddata 笔记标识
+   * @param {{ tierMode?: boolean, tierUrl?: string }} [options] 档位模式：tierMode 仅列出档位，tierUrl 指定档位下载
+   */
+  constructor (e, iddata, options) {
     super(e)
     this.e = e
     this.type = iddata?.type
+    this.tierMode = options?.tierMode ?? false
+    this.tierUrl = options?.tierUrl || ''
   }
 
   async XiaohongshuHandler (data) {
@@ -265,16 +360,17 @@ export class Xiaohongshu extends Base {
       timeout: Config.request?.timeout || 15000,
       headers: { 'User-Agent': Config.request?.['User-Agent'] || baseHeaders?.['User-Agent'] }
     })
-    // 同一笔记多群转发时复用详情数据，避免重复请求小红书 API
+    // 同一笔记多群转发时复用详情数据，避免重复请求小红书 API；
+    // 缓存到的是降级数据（只有单一档位）时重新请求，避免一直复用 720P
     const dataKey = `xhs:${data.note_id}`
     const noteData = await runSingleFlightData(dataKey, async () => {
       const cached = getCachedData(dataKey)
-      if (cached) return cached
-      const fresh = await xhsFetcher.fetchNoteDetail({
+      if (cached && !isDegradedNoteData(cached)) return cached
+      const fresh = await fetchNoteDetailWithStreams(xhsFetcher, {
         typeMode: 'strict',
         note_id: data.note_id,
         xsec_token: data.xsec_token
-      })
+      }, this.tierMode === true ? 2 : 1)
       setCachedData(dataKey, fresh)
       return fresh
     })
@@ -283,6 +379,23 @@ export class Xiaohongshu extends Base {
       throw new Error(noteData?.success === false
         ? `小红书笔记获取失败: ${noteData.message || '未知错误'}`
         : '小红书笔记数据为空')
+    }
+
+    // 档位模式：仅列出全部清晰度档位，供 xk解析档位 命令选择
+    if (this.tierMode === true) {
+      if (!card.video) {
+        await this.e?.reply?.('该笔记不是视频，没有可选的清晰度档位')
+        return { type: 'xiaohongshu_tier_selection', note_id: card.note_id || data.note_id, tiers: [] }
+      }
+      const tierList = buildXiaohongshuTierList(card)
+      if (!tierList.length) {
+        markParseFailed(this.e, '未获取到清晰度档位')
+        await this.e?.reply?.('未获取到可用的清晰度档位信息')
+        return { type: 'xiaohongshu_tier_selection', note_id: card.note_id || data.note_id, tiers: [] }
+      }
+      const { text, selectable } = buildTierMessage(this.e, tierList, getTierSizeLimitBytes('xiaohongshu'))
+      await this.e?.reply?.(text)
+      return { type: 'xiaohongshu_tier_selection', note_id: card.note_id || data.note_id, tiers: selectable }
     }
 
     let emojiData = []
@@ -318,7 +431,7 @@ export class Xiaohongshu extends Base {
       xhsVolumeAdjusted = false
       xhsSetSizeMb = 0
       if (card?.video) {
-        const stream = selectVideoStream(card.video.media?.stream, canBypassSizeLimit(this.e))
+        const stream = pickXiaohongshuStream(card, this.tierUrl, this.e)
         currentVideoBytes = stream?.size || 0
         const codecMap = { EF5: 'H.265', EF4: 'H.264', EF6: 'H.266', EF7: 'AV1' }
         const rawCodec = stream?.video_codec || ''
@@ -327,7 +440,7 @@ export class Xiaohongshu extends Base {
           width: stream?.width || 0,
           height: stream?.height || 0,
           encoding: rawCodec ? (codecMap[rawCodec] || rawCodec) : '',
-          hdr: stream?.hdr_type || 0,
+          hdr: hdrTypeLabel(stream?.hdr_type),
           size: dispSizeBytes ? (dispSizeBytes / 1048576).toFixed(2) : '',
           sizeExceeded: xhsSizeExceeded,
           sizeLimit: xhsSizeLimitMb,
@@ -443,7 +556,7 @@ export class Xiaohongshu extends Base {
     }
 
     if (card.video && sendContent.includes('video')) {
-      const stream = selectVideoStream(card.video.media?.stream, canBypassSizeLimit(this.e))
+      const stream = pickXiaohongshuStream(card, this.tierUrl, this.e)
       if (xhsSizeExceeded && !canBypassSizeLimit(this.e)) {
         markParseLimited(this.e, '体积超限')
         await this.e.reply(`解析到的视频所有清晰度均超过 ${xhsSizeLimitMb}MB，已停止下载\n当前体积上限：${xhsSizeLimitMb}MB` + overLimitTipSuffix(), { reply: true })
@@ -467,7 +580,8 @@ export class Xiaohongshu extends Base {
           Referer: 'https://www.xiaohongshu.com',
           Cookie: xhsCookie
         },
-        cacheKey: `xhs:${card?.id || card?.note_id || videoUrl}`,
+        // 缓存 key 带上档位（分辨率+体积），否则选 4K 时会复用到上次缓存的 1080P 文件
+        cacheKey: `xhs:${card?.id || card?.note_id || ''}:${stream ? `${stream.width || 0}x${stream.height || 0}-${stream.size || 0}` : videoUrl}`,
         nameParts: buildXiaohongshuNameParts(card, emojiData)
       })
     }
