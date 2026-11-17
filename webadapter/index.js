@@ -69,16 +69,20 @@ const getMemberName = (groupId, userId) => {
 const listGroups = () => {
   const list = []
   try {
-    const gl = globalThis.Bot?.gl
-    if (!gl?.values) return list
-    for (const item of gl.values()) {
+    const bot = globalThis.Bot
+    if (!bot?.gl?.values) return list
+    for (const item of bot.gl.values()) {
       if (!item?.group_id) continue
+      // Bot.gl 合并各账号的群，值里带所属 bot_id；据此取该账号的适配器名（OneBotv11 / QQBot / Lagrange 等）
+      const adapter = bot?.bots?.[item.bot_id]?.adapter?.name || ''
       list.push({
         group_id: String(item.group_id),
         group_name: item.group_name || '',
         member_count: Number.isFinite(item.member_count) ? item.member_count : null,
         max_member_count: Number.isFinite(item.max_member_count) ? item.max_member_count : null,
-        avatar: `https://p.qlogo.cn/gh/${item.group_id}/${item.group_id}/100`
+        avatar: `https://p.qlogo.cn/gh/${item.group_id}/${item.group_id}/100`,
+        bot_id: item.bot_id ? String(item.bot_id) : '',
+        adapter
       })
     }
   } catch {

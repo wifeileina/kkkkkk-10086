@@ -459,6 +459,10 @@ select.inp { cursor: pointer; }
 .table.rank-table .col-num { width: 27%; }
 .table.rank-table .gname { max-width: 100%; }
 
+/* 群组管理：适配器导航条 */
+.gnav { margin: 10px 16px 6px; }
+.table .gcount { font-size: 12px; color: var(--text-2); }
+
 .badge {
   display: inline-flex; align-items: center; gap: 5px;
   font-size: 11.5px; padding: 2px 9px; border-radius: 20px;
@@ -552,6 +556,31 @@ select.inp { cursor: pointer; }
   .emoji-grid { grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); }
   .emoji-modal-foot { flex-wrap: wrap; }
   .emoji-modal-foot .inp { flex: 1 1 110px; }
+}
+
+/* 群组列表：手机竖屏下表格改为卡片行（群名独占一行，群号/人数次行，按钮右对齐） */
+@media (max-width: 640px) {
+  .gtable thead { display: none; }
+  .gtable, .gtable tbody, .gtable tr { display: block; width: 100%; }
+  .gtable tr {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 3px 10px;
+    padding: 10px 0; border-bottom: 1px dashed var(--line);
+  }
+  .gtable tr:last-child { border-bottom: none; }
+  .gtable td { border: none; padding: 0; }
+  .gtable .gname {
+    order: 1; flex: 1 1 100%; max-width: none; white-space: normal;
+    font-size: 13.5px; font-weight: 500;
+  }
+  .gtable .gid, .gtable .gcount { order: 2; }
+  .gtable .gid::before { content: '群号 '; font-family: var(--sans); font-size: 11px; color: var(--text-3); }
+  .gtable .gcount::after { content: ' 人'; font-size: 11px; color: var(--text-3); }
+  .gtable .gact { order: 3; margin-left: auto; }
+  .group-head .search { width: 100%; }
+  /* 适配器导航：窄屏不换行，横向可滑动 */
+  .gnav { margin: 10px 14px 4px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .gnav::-webkit-scrollbar { display: none; }
+  .gnav .seg-btn { flex: 0 0 auto; }
 }
 </style>
 </head>
@@ -659,6 +688,7 @@ select.inp { cursor: pointer; }
         <input class="search" id="groupSearch" placeholder="搜索群号 / 群名" oninput="renderGroupTable()">
       </div>
       <div class="group-note">点击「加入惰解析」将该群写入惰解析群列表；惰解析群需带解析指令（如 <code>#解析</code> / <code>xk解析</code>）才会解析，裸链接与纯图片不再自动解析。</div>
+      <div class="seg gnav" id="groupAdapterNav"></div>
       <div class="rows" id="groupTableBox"><div class="empty">加载中…</div></div>
     </div>
   </section>
@@ -1906,6 +1936,44 @@ function currentManualGroups () {
   return toArray(VALUES.get('advanced.manualParseGroups')).map(String)
 }
 
+// 群组管理：按适配器（OneBot / QQBot 等）用顶部导航切换
+let GROUP_ADAPTER = ''
+let GROUP_ADAPTERS = []
+
+function groupBuckets (groups) {
+  const buckets = new Map()
+  for (const g of groups) {
+    const key = g.adapter || '未知适配器'
+    if (!buckets.has(key)) buckets.set(key, [])
+    buckets.get(key).push(g)
+  }
+  const adapterRank = (name) => (/qqbot/i.test(name) ? 1 : (/onebot|lagrange|icqq/i.test(name) ? 0 : 2))
+  return [...buckets.entries()]
+    .sort((a, b) => adapterRank(a[0]) - adapterRank(b[0]) || a[0].localeCompare(b[0]))
+}
+
+function selectGroupAdapter (index) {
+  const entry = GROUP_ADAPTERS[index]
+  if (!entry) return
+  GROUP_ADAPTER = entry[0]
+  renderGroupTable()
+}
+
+function renderGroupAdapterNav () {
+  const nav = document.getElementById('groupAdapterNav')
+  if (!nav) return
+  // 只有一种适配器时无需切换，直接隐藏导航条
+  if (GROUP_ADAPTERS.length <= 1) {
+    nav.style.display = 'none'
+    nav.innerHTML = ''
+    return
+  }
+  nav.style.display = ''
+  nav.innerHTML = GROUP_ADAPTERS
+    .map(([adapter, groups], i) => `<button class="seg-btn ${adapter === GROUP_ADAPTER ? 'on' : ''}" onclick="selectGroupAdapter(${i})">${esc(adapter)}（${groups.length}）</button>`)
+    .join('')
+}
+
 function renderGroupTable () {
   const box = document.getElementById('groupTableBox')
   if (!box) return
@@ -1913,25 +1981,43 @@ function renderGroupTable () {
   const keyword = (document.getElementById('groupSearch')?.value || '').trim().toLowerCase()
 
   if (!GROUPS.length) {
+    GROUP_ADAPTERS = []
+    renderGroupAdapterNav()
     box.innerHTML = '<div class="empty">暂无已加入的群组（机器人未上线或未加入任何群）</div>'
     return
   }
 
-  const list = GROUPS.filter((g) => !keyword || g.group_id.includes(keyword) || (g.group_name || '').toLowerCase().includes(keyword))
-  if (!list.length) {
+  const match = (g) => !keyword || g.group_id.includes(keyword) || (g.group_name || '').toLowerCase().includes(keyword)
+  GROUP_ADAPTERS = groupBuckets(GROUPS)
+  if (!GROUP_ADAPTERS.some(([name]) => name === GROUP_ADAPTER)) {
+    GROUP_ADAPTER = GROUP_ADAPTERS[0]?.[0] || ''
+  }
+
+  let groups = (GROUP_ADAPTERS.find(([name]) => name === GROUP_ADAPTER)?.[1] || []).filter(match)
+  // 搜索命中的群在其它适配器下时，自动切到该适配器，避免误判为「没有匹配」
+  if (keyword && !groups.length) {
+    const fallback = GROUP_ADAPTERS.find(([, list]) => list.some(match))
+    if (fallback) {
+      GROUP_ADAPTER = fallback[0]
+      groups = fallback[1].filter(match)
+    }
+  }
+  renderGroupAdapterNav()
+
+  if (!groups.length) {
     box.innerHTML = '<div class="empty">没有匹配的群组</div>'
     return
   }
 
-  box.innerHTML = `<table class="table">
+  box.innerHTML = `<table class="table gtable">
     <thead><tr><th>群号</th><th>群名</th><th>人数</th><th class="r">惰解析</th></tr></thead>
-    <tbody>${list.map((g) => {
+    <tbody>${groups.map((g) => {
       const active = manual.includes(String(g.group_id))
       return `<tr>
         <td class="gid">${esc(g.group_id)}</td>
         <td class="gname">${esc(g.group_name || '—')}</td>
-        <td class="gid">${g.member_count === null ? '—' : esc(g.member_count)}</td>
-        <td class="r"><button class="btn btn-mini ${active ? 'btn-danger' : ''}" onclick="toggleManualGroup('${esc(g.group_id)}')">${active ? '移出惰解析' : '加入惰解析'}</button></td>
+        <td class="gcount">${g.member_count === null ? '—' : esc(g.member_count)}</td>
+        <td class="r gact"><button class="btn btn-mini ${active ? 'btn-danger' : ''}" onclick="toggleManualGroup('${esc(g.group_id)}')">${active ? '移出惰解析' : '加入惰解析'}</button></td>
       </tr>`
     }).join('')}</tbody>
   </table>`
