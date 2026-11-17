@@ -1,4 +1,4 @@
-import { Base, Config, UploadRecord, Networks, Render, Common, downloadFile, downloadVideo, uploadFile, baseHeaders, processImageUrl, makeForwardMsg, makeForwardMsgBatched, getRemoteFileSize, markParseFailed, markParseLimited, canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent, isImageFileSendMode, buildMediaName, sendMediaFiles, shouldArchiveMedia, getTierSizeLimitBytes, buildTierMessage } from '../../utils/index.js'
+import { Base, Config, UploadRecord, Networks, Render, Common, downloadFile, downloadVideo, uploadFile, baseHeaders, processImageUrl, makeForwardMsg, makeForwardMsgBatched, getRemoteFileSize, markParseFailed, markParseLimited, canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent, isImageFileSendMode, buildMediaName, sendMediaFiles, shouldArchiveMedia, getTierSizeLimitBytes, buildTierMessage, buildQualityLabel } from '../../utils/index.js'
 import { getCachedData, setCachedData, runSingleFlightData } from '../../utils/ResourceCache.js'
 import { parseDouyinViaSharePage } from './sharePage.js'
 import { fetchDouyinDetailViaBrowser } from './webapi.js'
@@ -203,6 +203,23 @@ const getDouyinHeightLabel = (height) => {
   if (height >= 500) return '540P'
   if (height > 0) return '流畅'
   return '未知'
+}
+
+/** 当前下载码流的清晰度标注（配置固定档位时按目标高度换算），用于文件名末尾 */
+const resolveDouyinQualityLabel = (video, sourceIndex, { forced = false, adjusted = false } = {}) => {
+  if (!video) return ''
+  const selected = video?.bit_rate?.[sourceIndex]
+  const play = selected?.play_addr
+  const cfgQuality = Config.douyin?.videoQuality
+  const targetHeight = getDouyinQualityHeight(cfgQuality)
+  const sourceHeight = video.height || play?.height || 0
+  // 手动指定档位或体积下探后，以实际选中码流为准；只有固定画质档才按目标高度换算
+  const cfgFixed = !forced && !adjusted &&
+    cfgQuality && cfgQuality !== 'adapt' && cfgQuality !== 'hdr' && targetHeight > 0 && sourceHeight > 0
+  const height = cfgFixed ? Math.min(targetHeight, sourceHeight) : (play?.height || sourceHeight)
+  const width = play?.width || video.width || 0
+  const hdr = selected?.HDR_type || selected?.hdr_type || play?.hdr_type
+  return buildQualityLabel({ width, height, hdr: hdr ? 'HDR' : '' })
 }
 
 /** 从作品详情提取全部清晰度档位列表（排除 dash 流、无体积的无效档） */
@@ -1009,7 +1026,10 @@ export class DouYin extends Base {
                   },
                   // 缓存 key 带上档位下标，避免指定档位下载时复用其它档位的缓存文件
                   cacheKey: `douyin:${VideoData.data.aweme_detail?.aweme_id || g_video_url}:${this.tierIndex ?? 'auto'}`,
-                  nameParts: buildDouyinNameParts(VideoData.data.aweme_detail)
+                  nameParts: {
+                    ...buildDouyinNameParts(VideoData.data.aweme_detail),
+                    quality: resolveDouyinQualityLabel(video, sourceIndex, { forced: tierForced, adjusted: volumeAdjusted })
+                  }
                 },
                 {
                   message_id: this.e.message_id
@@ -1049,7 +1069,12 @@ export class DouYin extends Base {
                 await Common.removeFile(videoFile.filepath, true)
                 if (ok) {
                   const size = await Common.getVideoFileSize(resultPath)
-                  await uploadFile(this.e, { filepath: resultPath, totalBytes: size, originTitle: g_title }, '', { nameParts: buildDouyinNameParts(VideoData.data.aweme_detail) })
+                  await uploadFile(this.e, { filepath: resultPath, totalBytes: size, originTitle: g_title }, '', {
+                    nameParts: {
+                      ...buildDouyinNameParts(VideoData.data.aweme_detail),
+                      quality: resolveDouyinQualityLabel(video, sourceIndex, { forced: tierForced, adjusted: volumeAdjusted })
+                    }
+                  })
                 } else {
                   await sendOriginalVideo()
                 }

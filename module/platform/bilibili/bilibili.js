@@ -1,5 +1,5 @@
 import { Base, Render, Config, Networks, mergeFile, Common, baseHeaders, downloadFile, uploadFile, downloadVideo, processImageUrl, makeForwardMsgBatched, markParseFailed, markParseLimited, canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, overLimitTipSuffix, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent } from '../../utils/index.js'
-import { isImageFileSendMode, buildMediaName, sendMediaFiles } from '../../utils/FileSend.js'
+import { isImageFileSendMode, buildMediaName, sendMediaFiles, buildQualityLabel } from '../../utils/FileSend.js'
 import { getTierSizeLimitBytes, buildTierMessage } from '../../utils/ParsePermission.js'
 import { getCachedData, setCachedData, runSingleFlightData, runSingleFlight } from '../../utils/ResourceCache.js'
 import { bilibiliApiUrls, DynamicType, AdditionalType, wbi_sign } from '@ikenxuan/amagi'
@@ -1100,7 +1100,7 @@ export class Bilibili extends Base {
       if (!videoUrl || !audioUrl) {
         const videoStream = getBilibiliVideoStream(playUrlData)
         if (videoStream?.url) {
-          await downloadVideo(this.e, { video_url: videoStream.url, title: { timestampTitle: `tmp_${Date.now()}.mp4`, originTitle: `${this.downloadfilename}.mp4` }, cacheKey: `bilibili:${this.downloadfilename || videoStream.url}:${this.tierQn ?? 'auto'}`, nameParts: buildBiliNameParts(infoData, this.downloadfilename) })
+          await downloadVideo(this.e, { video_url: videoStream.url, title: { timestampTitle: `tmp_${Date.now()}.mp4`, originTitle: `${this.downloadfilename}.mp4` }, cacheKey: `bilibili:${this.downloadfilename || videoStream.url}:${this.tierQn ?? 'auto'}`, nameParts: { ...buildBiliNameParts(infoData, this.downloadfilename), quality: buildBiliQualityLabel(videoStream, this.tierQn) } })
         } else {
           logger.error("无法下载视频,请配置CooKie后重试")
         }
@@ -1163,11 +1163,12 @@ export class Bilibili extends Base {
       })
 
       if (mergedFile) {
+        const quality = buildBiliQualityLabel(selectedVideo, selectedVideo?.id)
         // 根据文件大小选择上传方式；各群基于同一文件路径上传，发送锁会按该路径串行，避免依次生成的缩略图冲突
         if (mergedFile.totalBytes > (Config.upload?.filelimit || 100)) {
-          await uploadFile(this.e, { filepath: mergedFile.filepath, totalBytes: mergedFile.totalBytes, originTitle: this.downloadfilename }, '', { useGroupFile: true, nameParts: buildBiliNameParts(infoData, this.downloadfilename) })
+          await uploadFile(this.e, { filepath: mergedFile.filepath, totalBytes: mergedFile.totalBytes, originTitle: this.downloadfilename }, '', { useGroupFile: true, nameParts: { ...buildBiliNameParts(infoData, this.downloadfilename), quality } })
         } else {
-          await uploadFile(this.e, { filepath: mergedFile.filepath, totalBytes: mergedFile.totalBytes, originTitle: this.downloadfilename }, '', { nameParts: buildBiliNameParts(infoData, this.downloadfilename) })
+          await uploadFile(this.e, { filepath: mergedFile.filepath, totalBytes: mergedFile.totalBytes, originTitle: this.downloadfilename }, '', { nameParts: { ...buildBiliNameParts(infoData, this.downloadfilename), quality } })
         }
       }
     } else {
@@ -1191,12 +1192,12 @@ export class Bilibili extends Base {
             await Common.removeFile(videoFile.filepath, true)
             if (ok) {
               const size = await Common.getVideoFileSize(resultPath)
-              await uploadFile(this.e, { filepath: resultPath, totalBytes: size, originTitle: this.downloadfilename }, '', { nameParts: buildBiliNameParts(infoData, this.downloadfilename) })
+              await uploadFile(this.e, { filepath: resultPath, totalBytes: size, originTitle: this.downloadfilename }, '', { nameParts: { ...buildBiliNameParts(infoData, this.downloadfilename), quality: buildBiliQualityLabel(durl[0], this.tierQn) } })
               return
             }
           }
         }
-        await downloadVideo(this.e, { video_url: videoUrl, title: { timestampTitle: `tmp_${Date.now()}.mp4`, originTitle: `${this.downloadfilename}.mp4` }, cacheKey: `bilibili:${this.downloadfilename || videoUrl}:${this.tierQn ?? 'auto'}`, nameParts: buildBiliNameParts(infoData, this.downloadfilename) })
+        await downloadVideo(this.e, { video_url: videoUrl, title: { timestampTitle: `tmp_${Date.now()}.mp4`, originTitle: `${this.downloadfilename}.mp4` }, cacheKey: `bilibili:${this.downloadfilename || videoUrl}:${this.tierQn ?? 'auto'}`, nameParts: { ...buildBiliNameParts(infoData, this.downloadfilename), quality: buildBiliQualityLabel(durl[0], this.tierQn) } })
       } else {
         logger.error("无法下载视频,请配置CooKie后重试")
       }
@@ -1390,6 +1391,29 @@ const biliHdrLabel = (qn) => {
   if (id === 126) return '杜比视界'
   if (id === 125) return 'HDR'
   return ''
+}
+
+/** qn → 分辨率标识（码流缺宽高时兜底） */
+const biliQnResolution = (qn) => {
+  const id = Number(qn) || 0
+  if (id >= 120) return '4K'
+  if (id >= 80) return '1080p'
+  if (id >= 64) return '720p'
+  if (id === 32) return '480p'
+  if (id === 16) return '360p'
+  return ''
+}
+
+/** 当前下载码流的清晰度标注，用于文件名末尾（如 1080p / 4K HDR） */
+const buildBiliQualityLabel = (stream, qn) => {
+  const id = Number(qn ?? stream?.id) || 0
+  // 文件名不区分杜比视界与普通 HDR，统一标注 HDR
+  const hdr = biliHdrLabel(id) ? 'HDR' : ''
+  const width = Number(stream?.width) || 0
+  const height = Number(stream?.height) || 0
+  if (width || height) return buildQualityLabel({ width, height, hdr })
+  const resolution = biliQnResolution(id)
+  return `${resolution}${resolution && hdr ? ' ' : ''}${hdr}`
 }
 
 /**

@@ -84,19 +84,45 @@ export const middleEllipsis = (text, max = MAX_DESC_LEN) => {
   return `${s.slice(0, head)}...${s.slice(-tail)}`
 }
 
+/** 分辨率标识：按短边判断（竖屏 1080×1920 仍记 1080p），2160 记 4K，1440 记 2K */
+export const resolutionQualityLabel = (width, height) => {
+  const w = Number(width) || 0
+  const h = Number(height) || 0
+  const edge = w > 0 && h > 0 ? Math.min(w, h) : Math.max(w, h)
+  if (edge >= 2160) return '4K'
+  if (edge >= 1440) return '2K'
+  if (edge >= 1080) return '1080p'
+  if (edge >= 720) return '720p'
+  if (edge >= 540) return '540p'
+  return edge > 0 ? `${Math.round(edge)}p` : ''
+}
+
 /**
- * 构建媒体文件名（不含扩展名）：@作者-描述 #标签 #标签
+ * 视频清晰度标注（追加在文件名末尾），如 1080p / 4K HDR。
+ * HDR 不区分杜比视界与普通 HDR，调用方统一传 'HDR' 即可。
+ * @param {{width?: number, height?: number, hdr?: string}} [options]
+ * @returns {string}
+ */
+export const buildQualityLabel = ({ width, height, hdr = '' } = {}) => {
+  const resolution = resolutionQualityLabel(width, height)
+  const hdrText = String(hdr ?? '').trim()
+  return `${resolution}${hdrText ? ` ${hdrText}` : ''}`
+}
+
+/**
+ * 构建媒体文件名（不含扩展名）：@作者-描述 #标签 清晰度
  * 多组时追加序号：第 1 组 _0，之后 _01、_02…；仅一组不追加。
  * @param {Object} options
  * @param {string} [options.author] 作者
  * @param {string} [options.description] 标题/描述
  * @param {string[]} [options.tags] 标签（不带 #）
+ * @param {string} [options.quality] 清晰度标注（如 1080p / 4K HDR），追加在名称末尾
  * @param {number} [options.index] 组序号（0 起）
  * @param {number} [options.total] 组总数
  * @param {'video'|'media'} [options.style] 命名风格：video=「@作者-简介」，media=「@作者 简介」
  * @returns {string}
  */
-export const buildMediaName = ({ author, description, tags = [], index, total, style = 'video' } = {}) => {
+export const buildMediaName = ({ author, description, tags = [], quality = '', index, total, style = 'video' } = {}) => {
   const authorText = clean(author)
   const tagText = (Array.isArray(tags) ? tags : [])
     .map((tag) => clean(String(tag ?? '').replace(/^#+/, '')))
@@ -116,14 +142,17 @@ export const buildMediaName = ({ author, description, tags = [], index, total, s
     indexSuffix = '_0'
   }
 
-  // 先为「标签 + 序号」预留长度，保证标签不被截断；只对描述做中间省略
-  const reserved = (tagText ? tagText.length + 1 : 0) + indexSuffix.length + (authorText ? authorText.length + 2 : 0)
+  // 先为「标签 + 清晰度 + 序号」预留长度，保证标签不被截断；只对描述做中间省略
+  const qualityText = clean(quality)
+  const reserved = (tagText ? tagText.length + 1 : 0) + (qualityText ? qualityText.length + 1 : 0) +
+    indexSuffix.length + (authorText ? authorText.length + 2 : 0)
   const descBudget = Math.max(12, MAX_NAME_LEN - reserved)
   const descText = middleEllipsis(validDesc || todayText(), descBudget)
 
   const name = [authorText ? `@${authorText}` : '', descText].filter(Boolean).join(style === 'media' ? ' ' : '-')
   const withTags = tagText ? `${name} ${tagText}` : name
-  return `${withTags.slice(0, MAX_NAME_LEN - indexSuffix.length)}${indexSuffix}`
+  const suffix = `${qualityText ? ` ${qualityText}` : ''}${indexSuffix}`
+  return `${withTags.slice(0, Math.max(1, MAX_NAME_LEN - suffix.length))}${suffix}`
 }
 
 const extOf = (source, fallback = '.jpg') => {

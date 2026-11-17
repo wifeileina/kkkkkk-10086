@@ -20,6 +20,31 @@ const BATCH_COMMAND_REG = /^#?xk批量解析/
 // 文件解析命令：本次解析强制按文件发送（不受全局「内容发送方式」影响）
 const FILE_COMMAND_REG = /^#?(?:xk文件解析|xk解析文件|文件解析|解析文件|xk文件)/
 
+// 链接尾部的解析指令（如「https://... xk解析」）：指令出现在链接之后时同样触发解析。
+// 要求指令前是空白、常见分隔符或链接末尾的斜杠，避免把「无法解析的视频」这类正文误判为指令
+const INLINE_CMD_BOUNDARY = '(?:^|[\\s，。,.、;；:：/])#?'
+const INLINE_TIER_COMMAND_REG = new RegExp(`${INLINE_CMD_BOUNDARY}(?:xk解析档位|xk档位解析|解析档位|档位解析|xk档位)`)
+const INLINE_FILE_COMMAND_REG = new RegExp(`${INLINE_CMD_BOUNDARY}(?:xk文件解析|xk解析文件|文件解析|解析文件|xk文件)`)
+const INLINE_DANMAKU_COMMAND_REG = new RegExp(`${INLINE_CMD_BOUNDARY}(?:xk弹幕解析|弹幕解析)`)
+const INLINE_PARSE_COMMAND_REG = new RegExp(`${INLINE_CMD_BOUNDARY}(?:xk解析|解析)`)
+
+/**
+ * 识别消息里跟在链接后面的解析指令，并写入与指令前缀入口一致的标记。
+ * 平台链接规则会先于指令规则命中「链接 + 指令」的消息，这里补齐指令语义，
+ * 使惰解析群放行、超限指令解析生效，并可切换档位/文件/弹幕模式。
+ * @param {any} e 事件对象
+ */
+const applyInlineCommand = (e) => {
+  const msg = String(e?.msg || '')
+  if (!msg) return
+  if (INLINE_TIER_COMMAND_REG.test(msg)) e._xkTierCommand = true
+  if (INLINE_FILE_COMMAND_REG.test(msg)) e._xkFileCommand = true
+  if (INLINE_DANMAKU_COMMAND_REG.test(msg)) e._xkForceDanmaku = true
+  if (e._xkTierCommand || e._xkFileCommand || e._xkForceDanmaku || INLINE_PARSE_COMMAND_REG.test(msg)) {
+    e._xkCommandParse = true
+  }
+}
+
 /** 从消息中提取全部链接（兼容 JSON 卡片转义、反引号包裹与尾部标点） */
 const extractBatchLinks = (msg) => {
   const matched = String(msg || '').replaceAll('\\', '').match(/https?:\/\/[^\s"'<>`]+/gi) || []
@@ -316,19 +341,32 @@ export class kkkTools extends plugin {
   }
 
   /**
+   * 平台链接规则的统一入口：识别尾部指令，并按其要求切换发送模式。
+   * @param {any} e 事件对象
+   * @param {string} businessName 业务名（错误日志用）
+   * @param {Function} fn 平台解析实现
+   * @returns {Promise<boolean>}
+   */
+  async _runPlatformParse(e, businessName, fn) {
+    if (e._xkFileCommand) return await runWithFileSendMode('all', () => this.runWithErrorHandler(e, businessName, fn))
+    return await this.runWithErrorHandler(e, businessName, fn)
+  }
+
+  /**
    * 处理抖音链接解析
    * @param {any} e 事件对象
    * @returns {Promise<boolean>} 处理结果
    */
   async douyin(e) {
+    applyInlineCommand(e)
     if (shouldSkipByVideoTool(e)) return false
     if (this._isPrivateParseBlocked(e, '抖音')) return true
     if (this._shouldManualParseBlock(e, '抖音')) return true
-    return await this.runWithErrorHandler(e, '抖音视频解析', this._douyin)
+    return await this._runPlatformParse(e, '抖音视频解析', this._douyin)
   }
 
   async _douyin(e) {
-    const forceBurnDanmaku = /^#?(弹幕解析|xk弹幕解析)/.test(e.msg)
+    const forceBurnDanmaku = e._xkForceDanmaku || /^#?(弹幕解析|xk弹幕解析)/.test(e.msg)
     const tierMode = Boolean(e._xkTierCommand)
     // QQ 小程序等 JSON 卡片里的链接会被转义成 https:\/\/，先去掉反斜杠再提取
     const msg = String(e.msg || '').replaceAll('\\', '')
@@ -446,14 +484,15 @@ export class kkkTools extends plugin {
    * @returns {Promise<boolean>} 处理结果
    */
   async bilibili(e) {
+    applyInlineCommand(e)
     if (shouldSkipByVideoTool(e)) return false
     if (this._isPrivateParseBlocked(e, 'B站')) return true
     if (this._shouldManualParseBlock(e, 'B站')) return true
-    return await this.runWithErrorHandler(e, 'B站视频解析', this._bilibili)
+    return await this._runPlatformParse(e, 'B站视频解析', this._bilibili)
   }
 
   async _bilibili(e, tierQn, explicitUrl) {
-    const forceBurnDanmaku = /^#?(弹幕解析|xk弹幕解析)/.test(e.msg)
+    const forceBurnDanmaku = e._xkForceDanmaku || /^#?(弹幕解析|xk弹幕解析)/.test(e.msg)
     // 档位选择后 e.msg 已是序号，需用之前存下的链接，避免把序号当链接解析
     let url = (explicitUrl || e.msg || (e.message?.[0]?.data || '')).replaceAll('\\', '').trim()
 
@@ -514,10 +553,11 @@ export class kkkTools extends plugin {
    * @returns {Promise<boolean>} 处理结果
    */
   async kuaishou(e) {
+    applyInlineCommand(e)
     if (shouldSkipByVideoTool(e)) return false
     if (this._isPrivateParseBlocked(e, '快手')) return true
     if (this._shouldManualParseBlock(e, '快手')) return true
-    return await this.runWithErrorHandler(e, '快手视频解析', this._kuaishou)
+    return await this._runPlatformParse(e, '快手视频解析', this._kuaishou)
   }
 
   async _kuaishou(e, tierUrl, explicitUrl) {
@@ -558,10 +598,11 @@ export class kkkTools extends plugin {
    * @returns {Promise<boolean>} 处理结果
    */
   async xiaohongshu(e) {
+    applyInlineCommand(e)
     if (shouldSkipByVideoTool(e)) return false
     if (this._isPrivateParseBlocked(e, '小红书')) return true
     if (this._shouldManualParseBlock(e, '小红书')) return true
-    return await this.runWithErrorHandler(e, '小红书笔记解析', this._xiaohongshu)
+    return await this._runPlatformParse(e, '小红书笔记解析', this._xiaohongshu)
   }
 
   async _xiaohongshu(e, tierUrl, explicitUrl) {

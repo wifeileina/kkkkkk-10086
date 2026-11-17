@@ -1,4 +1,4 @@
-import { Base, Config, Render, Networks, downloadVideo, markParseFailed } from '../../utils/index.js'
+import { Base, Config, Render, Networks, downloadVideo, markParseFailed, buildQualityLabel } from '../../utils/index.js'
 import { getTierSizeLimitBytes, buildTierMessage } from '../../utils/ParsePermission.js'
 import  comments  from './comments.js'
 
@@ -72,6 +72,8 @@ export default class KuaiShou extends Base {
     ;Config.app.parseTip && await this.e.reply('检测到快手链接，开始解析')
     // 指定档位下载时使用所选码流，否则用默认地址
     const video_url = this.tierUrl || videoDetail.photo.photoUrl
+    // 文件名末尾的清晰度：按地址匹配已解析的码流，拿不到分辨率时留空
+    const matchedTier = buildKuaishouTierList(videoDetail.photo).find((tier) => tier.url === video_url)
     const transformedData = Object.entries(emojiList).map(([ name, path ]) => {
       return { name, url: `https:${path}` }
     })
@@ -103,7 +105,8 @@ export default class KuaiShou extends Base {
       nameParts: {
         author: videoDetail?.photo?.userName || videoDetail?.photo?.user?.name || '',
         description: videoDetail?.photo?.caption || '快手作品',
-        tags: []
+        tags: [],
+        quality: matchedTier ? buildQualityLabel({ width: matchedTier.width, height: matchedTier.height }) : ''
       }
     })
     return true

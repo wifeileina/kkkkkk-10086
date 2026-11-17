@@ -10,7 +10,7 @@ import { markParseFailed, markParseLimited } from '../../utils/EmojiReaction.js'
 import { canBypassSizeLimit, overLimitHintMode, overLimitPermissionLabel, overLimitTipSuffix, isCommandParse, shouldSkipInfoGraphic, markInfoGraphicSent, getTierSizeLimitBytes, buildTierMessage } from '../../utils/ParsePermission.js'
 import { buildLivePhotoMessages, buildLivePhotoTipMessage, pickXiaohongshuImageUrl } from './livePhoto.js'
 import { buildXiaohongshuEmojiList, buildXiaohongshuText } from './comments.js'
-import { isImageFileSendMode, buildMediaName, sendMediaFiles } from '../../utils/FileSend.js'
+import { isImageFileSendMode, buildMediaName, sendMediaFiles, buildQualityLabel } from '../../utils/FileSend.js'
 import { xiaohongshuSign, createBoundXiaohongshuFetcher } from '@ikenxuan/amagi'
 
 // 无用户 Cookie 时自动生成小红书游客会话（含 web_session），等效于未登录抓取的 CK
@@ -64,14 +64,37 @@ const normalizeSendContent = () => Array.isArray(Config.xiaohongshu.sendContent)
 
 const formatCount = (value) => value ?? 0
 
+// 码流分组优先级：登录态 EF5/EF4/EF7/EF6，游客态 h265/h264/h266/av1
+const CODEC_GROUP_PRIORITY = ['EF5', 'h265', 'EF4', 'h264', 'EF7', 'h266', 'EF6', 'av1']
+// 音频/图片分组不是视频档位，收集时跳过
+const NON_VIDEO_GROUP_RE = /audio|image/i
+
+const pushStreamItems = (target, list) => {
+  for (const item of list) {
+    if (item && typeof item === 'object') target.push(item)
+  }
+}
+
 const collectVideoStreams = (streamData) => {
-  // 小红书码流分组键有两种命名：
-  // 登录态返回 EF5(H.265/无水印)、EF4(H.264)、EF7、EF6；
-  // 游客态返回 h265、h264、h266、av1。统一按「保画质优先」顺序拼接
-  const codecPriority = ['EF5', 'h265', 'EF4', 'h264', 'EF7', 'h266', 'EF6', 'av1']
+  if (!streamData || typeof streamData !== 'object') return []
+  const keys = Object.keys(streamData)
+    .filter((key) => !NON_VIDEO_GROUP_RE.test(key))
+    .sort((a, b) => {
+      const ia = CODEC_GROUP_PRIORITY.indexOf(a)
+      const ib = CODEC_GROUP_PRIORITY.indexOf(b)
+      return (ia < 0 ? CODEC_GROUP_PRIORITY.length : ia) - (ib < 0 ? CODEC_GROUP_PRIORITY.length : ib)
+    })
   const streams = []
-  for (const codec of codecPriority) {
-    if (Array.isArray(streamData?.[codec])) streams.push(...streamData[codec])
+  for (const key of keys) {
+    const value = streamData[key]
+    if (Array.isArray(value)) {
+      pushStreamItems(streams, value)
+    } else if (value && typeof value === 'object') {
+      // 嵌套分组（如 hdr: { h265: [...] }）展开一层，避免 HDR 专用分组被整体丢弃
+      for (const [subKey, subValue] of Object.entries(value)) {
+        if (Array.isArray(subValue) && !NON_VIDEO_GROUP_RE.test(subKey)) pushStreamItems(streams, subValue)
+      }
+    }
   }
   return streams
 }
@@ -118,6 +141,31 @@ const hdrTypeLabel = (hdrType) => {
   return ''
 }
 
+/** 笔记级 HDR 类型：部分笔记把 HDR 标在 video.media.video.hdr_type 上，而不是每个码流 */
+const getNoteHdrType = (card) =>
+  card?.video?.media?.video?.hdr_type ??
+  card?.video?.media?.hdr_type ??
+  card?.video?.hdr_type ??
+  0
+
+/**
+ * 码流的 HDR 类型：优先取码流自身字段（hdr_type / hdrType），
+ * 缺省时沿用笔记级标记，最后再看描述文本里是否直接写了 HDR / 杜比。
+ * @param {*} stream 码流
+ * @param {*} card 笔记 note_card
+ * @returns {number} 0=SDR 1=杜比视界 2=HDR
+ */
+const resolveHdrType = (stream, card) => {
+  const direct = stream?.hdr_type ?? stream?.hdrType
+  if (direct !== undefined && direct !== null && direct !== '') return Number(direct) || 0
+  const noteType = Number(getNoteHdrType(card)) || 0
+  if (noteType) return noteType
+  const desc = `${stream?.stream_desc || ''} ${stream?.quality_type || ''}`
+  if (/dovi|dolby|杜比/i.test(desc)) return 1
+  if (/hdr/i.test(desc)) return 2
+  return 0
+}
+
 /** 从笔记的码流数据提取全部清晰度档位（按体积升序，index 对应原始码流下标） */
 const buildXiaohongshuTierList = (card) => {
   const streams = collectVideoStreams(card?.video?.media?.stream)
@@ -129,12 +177,12 @@ const buildXiaohongshuTierList = (card) => {
     const width = stream.width || 0
     const height = stream.height || 0
     const size = Number(stream.size) || 0
-    // 同分辨率同体积的重复码流（多编码）合并，避免列表重复
-    const dedupKey = `${width}x${height}:${Math.round(size / 1024)}`
+    const hdrLabel = hdrTypeLabel(resolveHdrType(stream, card))
+    // 同分辨率同体积的重复码流（多编码）合并，避免列表重复；HDR 与 SDR 同尺寸时仍需分别保留
+    const dedupKey = `${width}x${height}:${Math.round(size / 1024)}:${hdrLabel}`
     if (seen.has(dedupKey)) continue
     seen.add(dedupKey)
     const quality = getQualityLevel(stream)
-    const hdrLabel = hdrTypeLabel(stream.hdr_type)
     const label = `${QUALITY_LABELS[quality] || quality.toUpperCase()}${hdrLabel ? ` ${hdrLabel}` : ''}`
     const sizeMb = size ? (size / (1024 * 1024)).toFixed(1) : ''
     const resolution = width && height ? `  ${width}×${height}` : ''
@@ -197,7 +245,7 @@ const selectVideoStream = (streamData, bypass = false) => {
   let streams = collectVideoStreams(streamData)
   if (!streams.length) return null
 
-  // 存在 size 字段才按分辨率大小降序，否则维持原顺序（h265 无水印优先）
+  // 存在 size 字段才按分辨率大小降序，否则维持原顺序（H.265 分组优先）
   if (streams.some(s => s.size != null)) {
     streams = streams.sort((a, b) => (b.size || 0) - (a.size || 0))
   }
@@ -207,7 +255,7 @@ const selectVideoStream = (streamData, bypass = false) => {
 
   if (quality === 'hdr') {
     // 优先选择 hdr_type 非 0 的 HDR 码流（已按大小降序），无 HDR 码流时回退普通码流
-    const hdrStreams = streams.filter(stream => stream.hdr_type)
+    const hdrStreams = streams.filter(stream => stream.hdr_type || stream.hdrType)
     const pool = hdrStreams.length ? hdrStreams : streams
     return pool[0]
   }
@@ -440,7 +488,7 @@ export class Xiaohongshu extends Base {
           width: stream?.width || 0,
           height: stream?.height || 0,
           encoding: rawCodec ? (codecMap[rawCodec] || rawCodec) : '',
-          hdr: hdrTypeLabel(stream?.hdr_type),
+          hdr: hdrTypeLabel(resolveHdrType(stream, card)),
           size: dispSizeBytes ? (dispSizeBytes / 1048576).toFixed(2) : '',
           sizeExceeded: xhsSizeExceeded,
           sizeLimit: xhsSizeLimitMb,
@@ -582,7 +630,15 @@ export class Xiaohongshu extends Base {
         },
         // 缓存 key 带上档位（分辨率+体积），否则选 4K 时会复用到上次缓存的 1080P 文件
         cacheKey: `xhs:${card?.id || card?.note_id || ''}:${stream ? `${stream.width || 0}x${stream.height || 0}-${stream.size || 0}` : videoUrl}`,
-        nameParts: buildXiaohongshuNameParts(card, emojiData)
+        nameParts: {
+          ...buildXiaohongshuNameParts(card, emojiData),
+          quality: buildQualityLabel({
+            width: stream?.width,
+            height: stream?.height,
+            // 文件名不区分杜比视界与普通 HDR，统一标注 HDR
+            hdr: resolveHdrType(stream, card) ? 'HDR' : ''
+          })
+        }
       })
     }
 

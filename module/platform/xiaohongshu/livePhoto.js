@@ -11,7 +11,7 @@ export const pickXiaohongshuImageUrl = (image) => {
 
 export const getXiaohongshuLivePhotoVideo = (streamData) => {
   if (!streamData) return null
-  // 小红书码流真实分组为 EF4/EF5/EF6/EF7（EF5=H.265 无水印优先），保留 h264/h265 等旧键兜底
+  // 小红书码流真实分组为 EF4/EF5/EF6/EF7（EF5=H.265，优先取），保留 h264/h265 等旧键兜底
   for (const codec of ['EF5', 'EF4', 'EF7', 'EF6', 'h265', 'h264', 'av1', 'h266']) {
     if (Array.isArray(streamData[codec]) && streamData[codec].length > 0) {
       return streamData[codec][0]
