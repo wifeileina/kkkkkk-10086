@@ -472,6 +472,9 @@ const schemas = [
     option('限制', 'limit'),
     option('隐藏', 'hide')
   ], '开放：全部档位可选；限制：超限档位单独列出但不可选；隐藏：超限档位折叠为「存在更高档位」'),
+  divider('文件服务'),
+  sw('advanced.fileServeBaseEnabled', '挂载文件 HTTP 服务', '开启后把文件挂载为 HTTP 地址下发，供跨系统协议端下载'),
+  input('advanced.fileServeBaseUrl', '文件服务基址', 'http地址下载，默认127.0.0.1，将文件挂载至该网址访问'),
   divider('文件发送'),
   radio('advanced.fileSendMode', '文件发送模式', [
     option('文件', 'all'),

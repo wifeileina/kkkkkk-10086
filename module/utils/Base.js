@@ -15,7 +15,7 @@ import Common from './Common.js'
 import axios from 'axios'
 import fs from 'fs'
 import path from 'node:path'
-import { isFileSendMode, buildMediaName, sendLocalFile } from './FileSend.js'
+import { isFileSendMode, buildMediaName, sendLocalFile, toFileUrl } from './FileSend.js'
 
 // QQBot（官方 bot）会上传前自己抓取视频 URL 转 base64（裸请求、无平台特定请求头）。
 // 抖音等平台直链对裸请求会返回 403，故发送前用同样方式探测该 URL 能否公开抓取；
@@ -581,11 +581,21 @@ export const uploadFile = async (e, file, videoUrl, options) => {
   // 文件处理
   let File
   const useBase64Video = Config.upload.videoSendMode === 'base64' || Config.upload.sendbase64
+  // 群文件展示名沿用命名规则，避免把临时文件名 tmp_xxx.mp4 发出去
+  const ext = path.extname(file.filepath) || '.mp4'
+  const groupFileName = options?.fileName ? `${options.fileName}${ext}` : `${buildMediaName(options?.nameParts || {})}${ext}`
   if (useBase64Video && !useGroupFile) {
     File = `base64://${fs.readFileSync(file.filepath).toString('base64')}`
     logger.mark(`已开启base64转换...`)
+  } else if (useGroupFile) {
+    // OneBot 协议端（NapCat 等）常运行在另一台机器/系统上，读不到 Bot 侧本地路径，
+    // 需先转成本框架的 HTTP 文件服务地址；ICQQ 与本进程同机，可直接用本地路径。
+    // 大文件由协议端经 server.url 下载，耗时可能超过框架默认的 1 分钟保留时间，这里放宽到 10 分钟
+    File = ['OneBotv11', 'OneBot11', 'Lagrange.OneBot'].includes(botAdapter)
+      ? await toFileUrl(e, file.filepath, groupFileName, { time: 10 * 60 * 1000 })
+      : file.filepath
   } else {
-    File = useGroupFile ? file.filepath : `file://${file.filepath}`
+    File = `file://${file.filepath}`
   }
   Common.registerVideoPreview(file.filepath, Boolean(Config.app.removeCache))
 
@@ -607,8 +617,8 @@ export const uploadFile = async (e, file, videoUrl, options) => {
           await (botAdapter === 'ICQQ'
             ? target.fs?.upload(File)
             : ['LagrangeCore', 'OneBotv11', 'Lagrange.OneBot'].includes(botAdapter)
-              ? target.sendFile?.(File)
-              : target.sendMsg?.(segment.file(File)))
+              ? target.sendFile?.(File, groupFileName)
+              : target.sendMsg?.(segment.file(File, groupFileName)))
           return true
         } finally {
           releaseTimeout()

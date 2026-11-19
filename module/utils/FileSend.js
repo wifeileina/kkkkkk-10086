@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import Config from './Config.js'
 import Common from './Common.js'
 import { Networks } from './Networks.js'
+import cfg from '../../../../lib/config/config.js'
 
 // 文件名非法字符（Windows/NTFS 与常见机器人框架均不接受）
 const ILLEGAL_RE = /[\\/:*?"<>|\r\n\t]+/g
@@ -185,23 +186,65 @@ const localizeSource = async (source, ext, headers) => {
   return { filepath: source, cleanup: false }
 }
 
+/** 框架 HTTP 服务端口（本机默认地址用） */
+const frameworkServerPort = () => Number(cfg?.server?.port) || 2536
+
+/** 校验并规范化自定义基址：只接受 http/https，非法返回空串 */
+const normalizeBase = (raw) => {
+  const text = String(raw || '').trim().replace(/\/+$/, '')
+  if (!text) return ''
+  try {
+    const url = new URL(text)
+    return /^https?:$/.test(url.protocol) ? text : ''
+  } catch {
+    return ''
+  }
+}
+
+/** 取已注册地址里的文件名段（框架注册时可能已做 URL 编码） */
+const registeredFileSegment = (registered) => {
+  try {
+    const segments = new URL(registered).pathname.split('/').filter(Boolean)
+    return segments.at(-1) || ''
+  } catch {
+    return ''
+  }
+}
+
 /**
- * 把本地文件转成框架的 HTTP 文件地址（NapCat 等跨进程/跨系统适配器无法读取 Bot 侧本地路径）。
- * 转换失败时回退为 file:// 地址。
+ * 生成文件下发地址：
+ * - 未开启「挂载文件 HTTP 服务」：一律返回本地路径，不挂载 HTTP、不注册文件；
+ * - 开启：把文件注册到框架文件服务，并按自定义基址（留空为 http://127.0.0.1:<框架端口>）返回下载地址。
+ *   文件名统一由框架按文件内容生成随机名，不暴露作者/标题等信息。
  * @param {*} e 事件对象
  * @param {string} filepath 本地路径
- * @param {string} [fileName] 展示文件名
+ * @param {string} [fileName] 展示文件名（仅用于本地发送，不参与 URL）
+ * @param {{time?: number, times?: number}} [opts] 额外参数：time 为文件保留时间（毫秒）
  * @returns {Promise<string>}
  */
-export const toFileUrl = async (e, filepath, fileName) => {
-  // 全局 Bot 是框架的 Yunzai 实例（自带 fileToUrl 文件服务）；e.bot 是适配器侧的轻量对象，没有该方法
+export const toFileUrl = async (e, filepath, fileName, opts) => {
+  const localPath = /^file:\/\//i.test(filepath) ? filepath : `file://${filepath}`
+
+  // 关闭时不生成 HTTP 地址
+  if (Config.advanced?.fileServeBaseEnabled !== true) return localPath
+
+  const base = normalizeBase(Config.advanced?.fileServeBaseUrl) || `http://127.0.0.1:${frameworkServerPort()}`
+
+  let registered = ''
   try {
-    const url = await globalThis.Bot?.fileToUrl?.(filepath, fileName ? { name: fileName } : undefined)
-    if (url) return String(url)
+    // 全局 Bot 是框架的 Yunzai 实例（自带 fileToUrl 文件服务）；e.bot 是适配器侧的轻量对象，没有该方法。
+    // 不传 name：由框架按文件内容生成随机名，避免文件名泄露
+    registered = String(await globalThis.Bot?.fileToUrl?.(filepath, opts || {}) || '')
   } catch (error) {
     logger.debug(`[FileSend] 本地文件转 HTTP 地址失败: ${error?.message || error}`)
   }
-  return /^file:\/\//i.test(filepath) ? filepath : `file://${filepath}`
+
+  if (!registered) return localPath
+
+  // 用实际注册的文件名段拼地址，避免与框架编码不一致
+  const segment = registeredFileSegment(registered)
+  if (base && segment) return `${base}/File/${segment}`
+  return registered
 }
 
 const hasError = (result) => {

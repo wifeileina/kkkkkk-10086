@@ -21,6 +21,16 @@ manualParseGroups: []
 # 允许使用「xk批量解析」的身份，可选值：all / admin / master / group.owner / group.admin
 batchParsePermission: master
 
+# ===== 文件服务 =====
+# 是否把本地文件挂载成 HTTP 地址下发给协议端：
+# 关闭（默认）：只下发本地文件路径，不产生任何 HTTP 地址；
+# 开启：注册到框架文件服务，按下方基址生成下载地址（供跨系统协议端读取）。
+fileServeBaseEnabled: false
+
+# 文件服务基址：开启后生效，留空默认 http://127.0.0.1:<框架端口>。
+# 链接中的文件名统一使用随机名，不暴露作者/标题等信息。
+fileServeBaseUrl:
+
 # ===== 文件发送 =====
 # 文件发送模式，可选值：all(全部媒体发文件)、image(仅图文/实况发文件)、normal(普通发送)
 # all：视频 / 图集 / 实况图及其视频 / BGM 均以文件发送
